@@ -36,8 +36,16 @@ export const CONFIG = {
   GEMINI_MODEL: process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite",
   POLL_INTERVAL_SECONDS: parseNumber(process.env.POLL_INTERVAL_SECONDS, 120),
   MAX_TRADE_ALLOCATION_USD: parseNumber(process.env.MAX_TRADE_ALLOCATION_USD, 500),
-  TAKE_PROFIT_PCT: parseNumber(process.env.TAKE_PROFIT_PCT, 5),
-  STOP_LOSS_PCT: parseNumber(process.env.STOP_LOSS_PCT, 3),
+  TAKE_PROFIT_PCT: parseNumber(process.env.TAKE_PROFIT_PCT, 2),
+  STOP_LOSS_PCT: parseNumber(process.env.STOP_LOSS_PCT, 1.2),
+
+  // Safer Strategy & Signal Verification Guardrails
+  SAFE_MODE: (process.env.SAFE_MODE ?? "true").toLowerCase() !== "false",
+  MIN_CONFIDENCE: parseNumber(process.env.MIN_CONFIDENCE, 70),
+  MIN_SAFETY_SCORE: parseNumber(process.env.MIN_SAFETY_SCORE, 65),
+  MAX_DAILY_VOLATILITY_PCT: parseNumber(process.env.MAX_DAILY_VOLATILITY_PCT, 6),
+  MAX_OPEN_POSITIONS: parseNumber(process.env.MAX_OPEN_POSITIONS, 3),
+
   REDDIT_USER_AGENT:
     process.env.REDDIT_USER_AGENT?.trim() ||
     "macos:degen-sentinel:v1.0.0 (by /u/hamidrezaghavami)",

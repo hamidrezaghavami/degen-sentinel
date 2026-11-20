@@ -179,49 +179,59 @@ export function renderDashboard({
   // Latest Signals (responsive columns so borders never break in 80-col terminals)
   lines.push(chalk.bold.white(`LATEST SIGNALS (${signals.length})`));
   if (signals.length > 0) {
-    const showSummary = termWidth >= 106;
-    const execWidth = showSummary ? 24 : Math.max(18, termWidth - 52);
-    const summaryWidth = Math.max(22, termWidth - 78);
+    const showStrategy = termWidth >= 106;
+    const execWidth = showStrategy ? 26 : Math.max(20, termWidth - 49);
+    const stratWidth = Math.max(20, termWidth - 78);
 
     const sigTable = new Table({
-      head: showSummary
+      head: showStrategy
         ? [
             chalk.cyan("Ticker"),
-            chalk.cyan("Sentiment"),
-            chalk.cyan("Hype"),
+            chalk.cyan("Risk"),
+            chalk.cyan("Safe"),
             chalk.cyan("Action"),
-            chalk.cyan("Execution"),
-            chalk.cyan("Summary"),
+            chalk.cyan("Execution / Verdict"),
+            chalk.cyan("Strategy"),
           ]
         : [
             chalk.cyan("Ticker"),
-            chalk.cyan("Sentiment"),
-            chalk.cyan("Hype"),
+            chalk.cyan("Risk"),
+            chalk.cyan("Safe"),
             chalk.cyan("Action"),
-            chalk.cyan("Execution"),
+            chalk.cyan("Execution / Verdict"),
           ],
-      colWidths: showSummary
-        ? [9, 17, 7, 8, execWidth, summaryWidth]
-        : [9, 17, 7, 8, execWidth],
+      colWidths: showStrategy
+        ? [8, 9, 8, 8, execWidth, stratWidth]
+        : [8, 9, 8, 8, execWidth],
       wordWrap: true,
       style: { head: [], border: ["gray"] },
     });
 
     for (const sig of signals.slice(0, 8)) {
-      const hypeStr =
-        sig.hype_score >= 8
-          ? chalk.red.bold(`${sig.hype_score}/10`)
-          : chalk.yellow(`${sig.hype_score}/10`);
+      const riskStr =
+        sig.risk_level === "HIGH"
+          ? chalk.red.bold("HIGH")
+          : sig.risk_level === "LOW"
+            ? chalk.green("LOW")
+            : chalk.yellow(sig.risk_level || "MED");
+
+      const score = Number(sig.safetyScore ?? 0);
+      const safeStr =
+        score >= 65
+          ? chalk.green.bold(`${score}%`)
+          : score >= 40
+            ? chalk.yellow(`${score}%`)
+            : chalk.gray(`${score}%`);
 
       const row = [
         chalk.white.bold(sig.ticker),
-        formatSentiment(sig.sentiment),
-        hypeStr,
+        riskStr,
+        safeStr,
         formatAction(sig.suggested_action),
         sig.execution || chalk.gray("PENDING"),
       ];
-      if (showSummary) {
-        row.push(chalk.gray(sig.summary || ""));
+      if (showStrategy) {
+        row.push(chalk.gray(sig.strategy || "NOISE"));
       }
       sigTable.push(row);
     }

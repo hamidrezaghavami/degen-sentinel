@@ -1,6 +1,7 @@
 import YahooFinanceModule from "yahoo-finance2";
 import { CONFIG } from "../config.js";
 import { getBroker } from "./brokers/index.js";
+import { verifySignal } from "./verifier.js";
 
 // Support both yahoo-finance2 v2 (singleton) and v3/v4 (class)
 const yahooFinance =
@@ -81,37 +82,78 @@ export async function executeSignals(signals) {
   const broker = getBroker();
   let account;
   let openOrderSymbols = new Set();
+  let openPositions = [];
 
   try {
-    const [acc, openOrders] = await Promise.all([
+    const [acc, openOrders, positions] = await Promise.all([
       broker.getAccountSummary(),
       broker.getOpenOrderSymbols(),
+      broker.getOpenPositions(),
     ]);
     account = acc;
     openOrderSymbols = openOrders;
+    openPositions = positions;
   } catch (err) {
     events.push(`Account check failed (${broker.name}): ${err.message}`);
     return {
-      enrichedSignals: signals.map((s) => ({ ...s, execution: "SKIPPED (Account Error)" })),
+      enrichedSignals: signals.map((s) => ({
+        ...s,
+        safetyScore: 0,
+        execution: "SKIPPED (Account Error)",
+      })),
       events,
     };
   }
 
+  let openPositionCount = openPositions.length;
+  const openPositionSymbols = new Set(openPositions.map((p) => p.symbol));
   let availableCash = Math.max(account.cash, account.buyingPower);
 
   for (const signal of signals) {
     const { ticker, hype_score: hypeScore, suggested_action: action } = signal;
 
-    if (hypeScore < 8 || action === "HOLD") {
+    // Step 1: Quantitative + Risk-Aware Signal Verification
+    let verification;
+    try {
+      verification = await verifySignal(signal);
+    } catch (err) {
+      verification = {
+        approved: false,
+        safetyScore: 0,
+        reason: `Verify Error: ${err.message.slice(0, 18)}`,
+        metrics: null,
+      };
+    }
+
+    if (!verification.approved) {
       enrichedSignals.push({
         ...signal,
-        execution: hypeScore < 8 ? "IGNORED (Hype < 8)" : "HOLD",
+        safetyScore: verification.safetyScore,
+        execution: `BLOCKED (${verification.reason})`,
+      });
+      if (hypeScore >= 8 && action !== "HOLD") {
+        events.push(
+          `VERIFIER BLOCKED ${action} ${ticker} [${signal.strategy}]: ${verification.reason}`
+        );
+      }
+      continue;
+    }
+
+    if (openOrderSymbols.has(ticker) || openPositionSymbols.has(ticker)) {
+      enrichedSignals.push({
+        ...signal,
+        safetyScore: verification.safetyScore,
+        execution: "SKIPPED (Already Open)",
       });
       continue;
     }
 
-    if (openOrderSymbols.has(ticker)) {
-      enrichedSignals.push({ ...signal, execution: "SKIPPED (Open Order)" });
+    if (openPositionCount >= CONFIG.MAX_OPEN_POSITIONS) {
+      enrichedSignals.push({
+        ...signal,
+        safetyScore: verification.safetyScore,
+        execution: `SKIPPED (Max ${CONFIG.MAX_OPEN_POSITIONS} Pos)`,
+      });
       continue;
     }
 
@@ -124,13 +166,21 @@ export async function executeSignals(signals) {
       if (allocation < price) {
         const msg = `Skipped ${action} ${ticker}: price $${price.toFixed(2)} exceeds allocation $${allocation.toFixed(2)}`;
         events.push(msg);
-        enrichedSignals.push({ ...signal, execution: "SKIPPED (Price > Budget)" });
+        enrichedSignals.push({
+          ...signal,
+          safetyScore: verification.safetyScore,
+          execution: "SKIPPED (Price > Budget)",
+        });
         continue;
       }
 
       const qty = Math.floor(allocation / price);
       if (qty <= 0) {
-        enrichedSignals.push({ ...signal, execution: "SKIPPED (Qty 0)" });
+        enrichedSignals.push({
+          ...signal,
+          safetyScore: verification.safetyScore,
+          execution: "SKIPPED (Qty 0)",
+        });
         continue;
       }
 
@@ -148,16 +198,26 @@ export async function executeSignals(signals) {
         stopLossPrice,
       });
       availableCash = Math.max(0, availableCash - qty * price);
+      openPositionCount += 1;
+      openPositionSymbols.add(ticker);
 
       const execLabel = `${side.toUpperCase()} ${qty} @ ~$${price.toFixed(2)}`;
       events.push(
-        `ORDER PLACED [${broker.id.toUpperCase()}]: ${execLabel} ${ticker} (TP $${takeProfitPrice} / SL $${stopLossPrice}, id: ${order.id})`
+        `VERIFIED ORDER [${broker.id.toUpperCase()} | Score ${verification.safetyScore}]: ${execLabel} ${ticker} (TP $${takeProfitPrice} / SL $${stopLossPrice}, id: ${order.id})`
       );
-      enrichedSignals.push({ ...signal, execution: execLabel });
+      enrichedSignals.push({
+        ...signal,
+        safetyScore: verification.safetyScore,
+        execution: execLabel,
+      });
     } catch (err) {
       const reason = err?.response?.data?.message || err.message || "Unknown error";
       events.push(`ORDER FAILED (${action} ${ticker}): ${reason}`);
-      enrichedSignals.push({ ...signal, execution: `FAILED: ${reason.slice(0, 26)}` });
+      enrichedSignals.push({
+        ...signal,
+        safetyScore: verification.safetyScore,
+        execution: `FAILED: ${reason.slice(0, 22)}`,
+      });
     }
   }
 
