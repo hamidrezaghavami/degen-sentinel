@@ -109,6 +109,20 @@ export async function executeSignals(signals) {
   const openPositionSymbols = new Set(openPositions.map((p) => p.symbol));
   let availableCash = Math.max(account.cash, account.buyingPower);
 
+  const computeTargets = (price, action) => {
+    if (!Number.isFinite(price) || price <= 0 || action === "HOLD") {
+      return { entryPrice: null, takeProfitPrice: null, stopLossPrice: null };
+    }
+    const tpFactor = CONFIG.TAKE_PROFIT_PCT / 100;
+    const slFactor = CONFIG.STOP_LOSS_PCT / 100;
+    const isBuy = action === "BUY";
+    return {
+      entryPrice: Number(price.toFixed(2)),
+      takeProfitPrice: Number((price * (isBuy ? 1 + tpFactor : 1 - tpFactor)).toFixed(2)),
+      stopLossPrice: Number((price * (isBuy ? 1 - slFactor : 1 + slFactor)).toFixed(2)),
+    };
+  };
+
   for (const signal of signals) {
     const { ticker, hype_score: hypeScore, suggested_action: action } = signal;
 
@@ -125,9 +139,21 @@ export async function executeSignals(signals) {
       };
     }
 
+    // Attach TP / SL levels to every actionable signal for the dashboard
+    let refPrice = verification.metrics?.lastPrice ?? null;
+    if (!refPrice && action !== "HOLD") {
+      try {
+        refPrice = await getCurrentPrice(ticker);
+      } catch {
+        refPrice = null;
+      }
+    }
+    const targets = computeTargets(refPrice, action);
+
     if (!verification.approved) {
       enrichedSignals.push({
         ...signal,
+        ...targets,
         safetyScore: verification.safetyScore,
         execution: `BLOCKED (${verification.reason})`,
       });
@@ -142,6 +168,7 @@ export async function executeSignals(signals) {
     if (openOrderSymbols.has(ticker) || openPositionSymbols.has(ticker)) {
       enrichedSignals.push({
         ...signal,
+        ...targets,
         safetyScore: verification.safetyScore,
         execution: "SKIPPED (Already Open)",
       });
@@ -151,6 +178,7 @@ export async function executeSignals(signals) {
     if (openPositionCount >= CONFIG.MAX_OPEN_POSITIONS) {
       enrichedSignals.push({
         ...signal,
+        ...targets,
         safetyScore: verification.safetyScore,
         execution: `SKIPPED (Max ${CONFIG.MAX_OPEN_POSITIONS} Pos)`,
       });
@@ -161,6 +189,7 @@ export async function executeSignals(signals) {
 
     try {
       const price = await getCurrentPrice(ticker);
+      const liveTargets = computeTargets(price, action);
       const allocation = Math.min(CONFIG.MAX_TRADE_ALLOCATION_USD, availableCash);
 
       if (allocation < price) {
@@ -168,6 +197,7 @@ export async function executeSignals(signals) {
         events.push(msg);
         enrichedSignals.push({
           ...signal,
+          ...liveTargets,
           safetyScore: verification.safetyScore,
           execution: "SKIPPED (Price > Budget)",
         });
@@ -178,17 +208,14 @@ export async function executeSignals(signals) {
       if (qty <= 0) {
         enrichedSignals.push({
           ...signal,
+          ...liveTargets,
           safetyScore: verification.safetyScore,
           execution: "SKIPPED (Qty 0)",
         });
         continue;
       }
 
-      const tpFactor = CONFIG.TAKE_PROFIT_PCT / 100;
-      const slFactor = CONFIG.STOP_LOSS_PCT / 100;
-      const isBuy = side === "buy";
-      const takeProfitPrice = Number((price * (isBuy ? 1 + tpFactor : 1 - tpFactor)).toFixed(2));
-      const stopLossPrice = Number((price * (isBuy ? 1 - slFactor : 1 + slFactor)).toFixed(2));
+      const { takeProfitPrice, stopLossPrice } = liveTargets;
 
       const order = await broker.placeMarketOrder({
         symbol: ticker,
@@ -207,6 +234,7 @@ export async function executeSignals(signals) {
       );
       enrichedSignals.push({
         ...signal,
+        ...liveTargets,
         safetyScore: verification.safetyScore,
         execution: execLabel,
       });
@@ -215,6 +243,7 @@ export async function executeSignals(signals) {
       events.push(`ORDER FAILED (${action} ${ticker}): ${reason}`);
       enrichedSignals.push({
         ...signal,
+        ...targets,
         safetyScore: verification.safetyScore,
         execution: `FAILED: ${reason.slice(0, 22)}`,
       });

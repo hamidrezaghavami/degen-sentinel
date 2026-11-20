@@ -179,42 +179,36 @@ export function renderDashboard({
   // Latest Signals (responsive columns so borders never break in 80-col terminals)
   lines.push(chalk.bold.white(`LATEST SIGNALS (${signals.length})`));
   if (signals.length > 0) {
-    const showStrategy = termWidth >= 106;
-    const execWidth = showStrategy ? 26 : Math.max(20, termWidth - 49);
-    const stratWidth = Math.max(20, termWidth - 78);
+    const showStrategy = termWidth >= 108;
+    const tpSlWidth = 21;
+    const execWidth = showStrategy ? 24 : Math.max(18, termWidth - 57);
+    const stratWidth = Math.max(18, termWidth - 88);
 
     const sigTable = new Table({
       head: showStrategy
         ? [
             chalk.cyan("Ticker"),
-            chalk.cyan("Risk"),
             chalk.cyan("Safe"),
             chalk.cyan("Action"),
+            chalk.cyan("TP / SL"),
             chalk.cyan("Execution / Verdict"),
             chalk.cyan("Strategy"),
           ]
         : [
             chalk.cyan("Ticker"),
-            chalk.cyan("Risk"),
             chalk.cyan("Safe"),
             chalk.cyan("Action"),
+            chalk.cyan("TP / SL"),
             chalk.cyan("Execution / Verdict"),
           ],
       colWidths: showStrategy
-        ? [8, 9, 8, 8, execWidth, stratWidth]
-        : [8, 9, 8, 8, execWidth],
+        ? [8, 7, 8, tpSlWidth, execWidth, stratWidth]
+        : [8, 7, 8, tpSlWidth, execWidth],
       wordWrap: true,
       style: { head: [], border: ["gray"] },
     });
 
     for (const sig of signals.slice(0, 8)) {
-      const riskStr =
-        sig.risk_level === "HIGH"
-          ? chalk.red.bold("HIGH")
-          : sig.risk_level === "LOW"
-            ? chalk.green("LOW")
-            : chalk.yellow(sig.risk_level || "MED");
-
       const score = Number(sig.safetyScore ?? 0);
       const safeStr =
         score >= 65
@@ -223,11 +217,16 @@ export function renderDashboard({
             ? chalk.yellow(`${score}%`)
             : chalk.gray(`${score}%`);
 
+      const tpSlStr =
+        sig.takeProfitPrice && sig.stopLossPrice
+          ? `${chalk.green(`$${sig.takeProfitPrice.toFixed(2)}`)} / ${chalk.red(`$${sig.stopLossPrice.toFixed(2)}`)}`
+          : chalk.gray("-");
+
       const row = [
         chalk.white.bold(sig.ticker),
-        riskStr,
         safeStr,
         formatAction(sig.suggested_action),
+        tpSlStr,
         sig.execution || chalk.gray("PENDING"),
       ];
       if (showStrategy) {
