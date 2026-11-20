@@ -36,8 +36,8 @@ export const CONFIG = {
   GEMINI_MODEL: process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite",
   POLL_INTERVAL_SECONDS: parseNumber(process.env.POLL_INTERVAL_SECONDS, 120),
   MAX_TRADE_ALLOCATION_USD: parseNumber(process.env.MAX_TRADE_ALLOCATION_USD, 500),
-  TAKE_PROFIT_PCT: parseNumber(process.env.TAKE_PROFIT_PCT, 2),
-  STOP_LOSS_PCT: parseNumber(process.env.STOP_LOSS_PCT, 1.2),
+  TAKE_PROFIT_PCT: parseNumber(process.env.TAKE_PROFIT_PCT, 1.2),
+  STOP_LOSS_PCT: parseNumber(process.env.STOP_LOSS_PCT, 0.8),
 
   // Safer Strategy & Signal Verification Guardrails
   SAFE_MODE: (process.env.SAFE_MODE ?? "true").toLowerCase() !== "false",

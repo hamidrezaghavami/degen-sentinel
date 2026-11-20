@@ -128,11 +128,12 @@ export async function verifySignal(signal) {
     hype_score: hypeScore = 5,
   } = signal;
 
-  if (action === "HOLD" || hypeScore < 8) {
+  const minHype = riskLevel === "LOW" ? 6 : 8;
+  if (action === "HOLD" || hypeScore < minHype) {
     return {
       approved: false,
       safetyScore: 0,
-      reason: action === "HOLD" ? "HOLD" : "Hype < 8",
+      reason: action === "HOLD" ? "HOLD" : `Hype < ${minHype}`,
       metrics: null,
     };
   }
