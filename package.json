@@ -1,0 +1,34 @@
+{
+  "name": "degen-sentinel",
+  "version": "1.0.0",
+  "description": "Autonomous CLI paper-trading bot that polls r/wallstreetbets sentiment, analyzes tickers with Gemini AI, and executes contrarian paper trades on Alpaca.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "once": "node index.js --once"
+  },
+  "keywords": [
+    "alpaca",
+    "paper-trading",
+    "wallstreetbets",
+    "reddit",
+    "gemini",
+    "sentiment-analysis",
+    "cli",
+    "trading-bot"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@alpacahq/alpaca-trade-api": "^3.1.3",
+    "@google/genai": "^3.2.0",
+    "chalk": "^5.3.0",
+    "cli-table3": "^0.6.5",
+    "dotenv": "^16.4.5",
+    "ora": "^8.1.1",
+    "yahoo-finance2": "^2.13.3"
+  }
+}
