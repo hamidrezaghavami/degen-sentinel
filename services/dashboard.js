@@ -51,6 +51,7 @@ function formatSentiment(sentiment) {
  */
 export function renderDashboard({
   status = "RUNNING",
+  brokerName = "ALPACA PAPER",
   cycle = 0,
   pollIntervalSeconds = 120,
   account = null,
@@ -135,7 +136,7 @@ export function renderDashboard({
     ]);
   }
 
-  lines.push(chalk.bold.white("ACCOUNT OVERVIEW (ALPACA PAPER)"));
+  lines.push(chalk.bold.white(`ACCOUNT OVERVIEW (${brokerName})`));
   lines.push(accountTable.toString());
   lines.push("");
 

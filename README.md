@@ -8,7 +8,12 @@ An autonomous Node.js CLI paper-trading bot that monitors live retail sentiment 
 
 - **Reddit Sentiment Scraper (`services/scraper.js`):** Polls the newest 15 posts from `r/wallstreetbets` using native `fetch` and deduplicates post IDs in-memory.
 - **Structured AI Sentiment Engine (`services/analyzer.js`):** Uses `@google/genai` (defaulting to free-tier friendly `gemini-3.5-flash-lite`) with strict JSON Schema output, filtering out WSB slang/acronyms (`DD`, `YOLO`, `HOLD`, `MOON`, `CEO`, etc.) and applying inverse contrarian logic when `hype_score > 8`.
-- **Automated Paper Execution (`services/trader.js`):** Fetches live prices with `yahoo-finance2`, sizes positions against `MAX_TRADE_ALLOCATION_USD` and available buying power, and submits market orders (`time_in_force: 'day'`) to Alpaca Paper Trading.
+- **Multi-Broker Execution (`services/trader.js` + `services/brokers/`):** Supports the top 4 retail/algo brokers via a unified adapter interface—switch brokers with a single `BROKER=` env var:
+  - **Alpaca** (`BROKER=alpaca`, default) — Paper & Live via `@alpacahq/alpaca-trade-api`
+  - **Interactive Brokers / IBKR** (`BROKER=ibkr`) — Client Portal Web API
+  - **Tradier** (`BROKER=tradier`) — Sandbox & Live REST API
+  - **Charles Schwab** (`BROKER=schwab`) — Official Trader API
+  - Fetches live quotes with `yahoo-finance2` (with broker fallback), sizes positions against `MAX_TRADE_ALLOCATION_USD`, and skips tickers with open pending orders to avoid wash trades.
 - **Flicker-Free Terminal Dashboard (`services/dashboard.js`):** Renders live account metrics, open positions with color-coded PnL, latest AI signals, and an activity log using `chalk` and `cli-table3`.
 - **Resilient Autonomous Loop (`index.js`):** Non-overlapping polling with full error isolation and graceful `SIGINT`/`SIGTERM` shutdown.
 

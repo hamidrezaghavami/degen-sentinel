@@ -1,8 +1,8 @@
-import Alpaca from "@alpacahq/alpaca-trade-api";
 import YahooFinanceModule from "yahoo-finance2";
 import { CONFIG } from "../config.js";
+import { getBroker } from "./brokers/index.js";
 
-// Support both yahoo-finance2 v2 (singleton default export) and v3 (class export)
+// Support both yahoo-finance2 v2 (singleton) and v3/v4 (class)
 const yahooFinance =
   typeof YahooFinanceModule === "function"
     ? new YahooFinanceModule({ suppressNotices: ["yahooSurvey"] })
@@ -12,52 +12,30 @@ if (typeof yahooFinance.suppressNotices === "function") {
   yahooFinance.suppressNotices(["yahooSurvey"]);
 }
 
-let alpacaClient = null;
-
-function getAlpaca() {
-  if (!alpacaClient) {
-    alpacaClient = new Alpaca({
-      keyId: CONFIG.ALPACA_API_KEY_ID,
-      secretKey: CONFIG.ALPACA_API_SECRET_KEY,
-      paper: CONFIG.ALPACA_PAPER,
-    });
-  }
-  return alpacaClient;
+/**
+ * Return the display name of the active broker (e.g. ALPACA PAPER, IBKR, TRADIER SANDBOX, CHARLES SCHWAB).
+ */
+export function getActiveBrokerName() {
+  return getBroker().name;
 }
 
 /**
- * Fetch Alpaca paper account summary.
+ * Fetch account summary from the configured broker.
  */
 export async function getAccountSummary() {
-  const account = await getAlpaca().getAccount();
-  return {
-    cash: Number(account.cash ?? 0),
-    buyingPower: Number(account.buying_power ?? 0),
-    portfolioValue: Number(account.portfolio_value ?? 0),
-    equity: Number(account.equity ?? 0),
-    status: account.status || "UNKNOWN",
-  };
+  return getBroker().getAccountSummary();
 }
 
 /**
- * Fetch all open positions from Alpaca paper account.
+ * Fetch all open positions from the configured broker.
  */
 export async function getOpenPositions() {
-  const positions = await getAlpaca().getPositions();
-  return positions.map((pos) => ({
-    symbol: pos.symbol,
-    qty: Number(pos.qty ?? 0),
-    side: pos.side || (Number(pos.qty) >= 0 ? "long" : "short"),
-    entryPrice: Number(pos.avg_entry_price ?? 0),
-    currentPrice: Number(pos.current_price ?? 0),
-    unrealizedPl: Number(pos.unrealized_pl ?? 0),
-    unrealizedPlpc: Number(pos.unrealized_plpc ?? 0) * 100,
-  }));
+  return getBroker().getOpenPositions();
 }
 
 /**
- * Fetch current live market price via yahoo-finance2, with Alpaca latest-trade fallback
- * if Yahoo Finance rate-limits the request.
+ * Fetch current live market price via yahoo-finance2, falling back to the active
+ * broker's quote endpoint if Yahoo Finance rate-limits the request.
  */
 export async function getCurrentPrice(symbol) {
   try {
@@ -72,21 +50,22 @@ export async function getCurrentPrice(symbol) {
       return price;
     }
   } catch {
-    // Fall through to Alpaca market data fallback
+    // Fall through to broker market data fallback
   }
 
-  const latestTrade = await getAlpaca().getLatestTrade(symbol);
-  const fallbackPrice = Number(latestTrade?.Price ?? latestTrade?.p ?? 0);
-
-  if (!Number.isFinite(fallbackPrice) || fallbackPrice <= 0) {
-    throw new Error(`No valid market price returned for ${symbol}`);
+  const broker = getBroker();
+  if (typeof broker.getLatestPrice === "function") {
+    const fallbackPrice = Number(await broker.getLatestPrice(symbol));
+    if (Number.isFinite(fallbackPrice) && fallbackPrice > 0) {
+      return fallbackPrice;
+    }
   }
 
-  return fallbackPrice;
+  throw new Error(`No valid market price returned for ${symbol}`);
 }
 
 /**
- * Evaluate signals with hype_score >= 8 and execute paper market orders on Alpaca.
+ * Evaluate signals with hype_score >= 8 and execute market orders on the active broker.
  *
  * @param {Array<object>} signals
  * @returns {Promise<{ enrichedSignals: Array<object>, events: Array<string> }>}
@@ -99,17 +78,19 @@ export async function executeSignals(signals) {
     return { enrichedSignals, events };
   }
 
+  const broker = getBroker();
   let account;
   let openOrderSymbols = new Set();
+
   try {
     const [acc, openOrders] = await Promise.all([
-      getAccountSummary(),
-      getAlpaca().getOrders({ status: "open" }),
+      broker.getAccountSummary(),
+      broker.getOpenOrderSymbols(),
     ]);
     account = acc;
-    openOrderSymbols = new Set(openOrders.map((o) => o.symbol));
+    openOrderSymbols = openOrders;
   } catch (err) {
-    events.push(`Account check failed: ${err.message}`);
+    events.push(`Account check failed (${broker.name}): ${err.message}`);
     return {
       enrichedSignals: signals.map((s) => ({ ...s, execution: "SKIPPED (Account Error)" })),
       events,
@@ -153,25 +134,18 @@ export async function executeSignals(signals) {
         continue;
       }
 
-      const order = await getAlpaca().createOrder({
-        symbol: ticker,
-        qty,
-        side,
-        type: "market",
-        time_in_force: "day",
-      });
-
+      const order = await broker.placeMarketOrder({ symbol: ticker, qty, side });
       availableCash = Math.max(0, availableCash - qty * price);
 
       const execLabel = `${side.toUpperCase()} ${qty} @ ~$${price.toFixed(2)}`;
       events.push(
-        `ORDER PLACED: ${execLabel} ${ticker} (id: ${order.id}, status: ${order.status})`
+        `ORDER PLACED [${broker.id.toUpperCase()}]: ${execLabel} ${ticker} (id: ${order.id}, status: ${order.status})`
       );
       enrichedSignals.push({ ...signal, execution: execLabel });
     } catch (err) {
       const reason = err?.response?.data?.message || err.message || "Unknown error";
       events.push(`ORDER FAILED (${action} ${ticker}): ${reason}`);
-      enrichedSignals.push({ ...signal, execution: `FAILED: ${reason.slice(0, 28)}` });
+      enrichedSignals.push({ ...signal, execution: `FAILED: ${reason.slice(0, 26)}` });
     }
   }
 

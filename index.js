@@ -4,6 +4,7 @@ import { CONFIG, validateConfig } from "./config.js";
 import { fetchNewPosts } from "./services/scraper.js";
 import { analyzeSentiment } from "./services/analyzer.js";
 import {
+  getActiveBrokerName,
   getAccountSummary,
   getOpenPositions,
   executeSignals,
@@ -120,6 +121,7 @@ async function runCycle(onBeforeRender = null) {
 
   renderDashboard({
     status: state.status,
+    brokerName: getActiveBrokerName(),
     cycle: state.cycle,
     pollIntervalSeconds: CONFIG.POLL_INTERVAL_SECONDS,
     account: state.account,
@@ -159,20 +161,21 @@ async function boot() {
     process.exit(1);
   }
 
+  const brokerName = getActiveBrokerName();
   const spinner = ora({
-    text: `Booting degen-sentinel (Model: ${CONFIG.GEMINI_MODEL}, Paper: ${CONFIG.ALPACA_PAPER})...`,
+    text: `Booting degen-sentinel (Broker: ${brokerName}, Model: ${CONFIG.GEMINI_MODEL})...`,
     color: "cyan",
   }).start();
 
   try {
     state.account = await getAccountSummary();
-    spinner.succeed("Connected to Alpaca Paper Trading API.");
+    spinner.succeed(`Connected to ${brokerName}.`);
   } catch (err) {
-    spinner.warn(`Initial Alpaca check failed (${err.message}); continuing daemon loop...`);
+    spinner.warn(`Initial ${brokerName} check failed (${err.message}); continuing daemon loop...`);
   }
 
   const cycleSpinner = ora({
-    text: "Running Cycle #1 (scraping r/wallstreetbets, analyzing with Gemini, syncing Alpaca)...",
+    text: `Running Cycle #1 (scraping r/wallstreetbets, analyzing with Gemini, syncing ${brokerName})...`,
     color: "cyan",
   }).start();
 
