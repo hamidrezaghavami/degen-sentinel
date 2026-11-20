@@ -16,7 +16,7 @@ An autonomous Node.js CLI paper-trading bot that monitors live retail sentiment 
 
 1. **Install dependencies:**
    ```bash
-   npm install
+   pnpm install
    ```
 
 2. **Configure environment variables:**
@@ -38,10 +38,10 @@ An autonomous Node.js CLI paper-trading bot that monitors live retail sentiment 
 3. **Run the bot:**
    ```bash
    # Start autonomous daemon loop
-   npm start
+   pnpm start
 
    # Run a single scrape -> analyze -> trade -> render cycle
-   npm run once
+   pnpm once
    ```
 
 ## Project Structure

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Autonomous CLI paper-trading bot that polls r/wallstreetbets sentiment, analyzes tickers with Gemini AI, and executes contrarian paper trades on Alpaca.",
   "type": "module",
+  "packageManager": "pnpm@12.18.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
