@@ -2,6 +2,9 @@ import { CONFIG } from "../config.js";
 
 const PUBLIC_REDDIT_ENDPOINT = "https://www.reddit.com/r/wallstreetbets/new.json";
 const OAUTH_REDDIT_ENDPOINT = "https://oauth.reddit.com/r/wallstreetbets/new";
+const APEWISDOM_WSB_ENDPOINT =
+  "https://apewisdom.io/api/v1.0/filter/wallstreetbets/page/1";
+
 const MAX_SEEN_IDS = 1000;
 const seenPostIds = new Set();
 
@@ -52,12 +55,72 @@ async function getRedditOAuthToken() {
 }
 
 /**
+ * Fallback live r/wallstreetbets feed via ApeWisdom public API when Reddit blocks
+ * unauthenticated .json requests (HTTP 403/429).
+ */
+async function fetchFromApeWisdom(limit = 15) {
+  const response = await fetch(APEWISDOM_WSB_ENDPOINT, {
+    headers: {
+      "User-Agent": CONFIG.REDDIT_USER_AGENT,
+      Accept: "application/json",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`ApeWisdom fallback error: HTTP ${response.status} ${response.statusText}`);
+  }
+
+  const payload = await response.json();
+  const results = (payload?.results ?? []).slice(0, limit);
+
+  const newItems = [];
+  for (const item of results) {
+    const ticker = String(item?.ticker || "").trim();
+    if (!ticker) continue;
+
+    const mentions = Number(item.mentions ?? 0);
+    const mentions24h = Number(item.mentions_24h_ago ?? 0);
+    const upvotes = Number(item.upvotes ?? 0);
+    const rank = Number(item.rank ?? 0);
+    const rank24h = Number(item.rank_24h_ago ?? rank);
+
+    // Deduplicate identical mention snapshots across cycles
+    const snapshotId = `apewisdom:${ticker}:${mentions}:${upvotes}`;
+    if (seenPostIds.has(snapshotId)) continue;
+    recordSeenId(snapshotId);
+
+    const deltaPct =
+      mentions24h > 0
+        ? (((mentions - mentions24h) / mentions24h) * 100).toFixed(0)
+        : "NEW";
+    const rankShift = rank24h - rank;
+
+    newItems.push({
+      id: snapshotId,
+      title: `$${ticker} (${item.name || ticker}) — WSB Rank #${rank} (${mentions} mentions, ${deltaPct}% vs 24h ago)`,
+      selftext: `r/wallstreetbets live telemetry: ${mentions} mentions (was ${mentions24h} 24h ago), ${upvotes} total upvotes, rank change ${rankShift >= 0 ? `+${rankShift}` : rankShift}.`,
+      upvoteRatio: mentions > 0 ? Math.min(0.99, Math.max(0.5, upvotes / (mentions * 10))) : 0.75,
+      score: upvotes,
+      createdUtc: Math.floor(Date.now() / 1000),
+    });
+  }
+
+  return {
+    posts: newItems,
+    totalFetched: results.length,
+    source: "r/wallstreetbets (ApeWisdom live fallback)",
+  };
+}
+
+/**
  * Fetch the top N newest posts from r/wallstreetbets and return only unseen posts.
  * Uses native Node.js fetch with a custom User-Agent.
- * Automatically uses Reddit OAuth if REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET are set.
+ * Automatically uses Reddit OAuth if REDDIT_CLIENT_ID & REDDIT_CLIENT_SECRET are set,
+ * and falls back to ApeWisdom's live WSB feed if Reddit blocks unauthenticated .json requests.
  *
  * @param {number} limit
- * @returns {Promise<{ posts: Array<object>, totalFetched: number }>}
+ * @returns {Promise<{ posts: Array<object>, totalFetched: number, source: string }>}
  */
 export async function fetchNewPosts(limit = 15) {
   const token = await getRedditOAuthToken();
@@ -73,51 +136,48 @@ export async function fetchNewPosts(limit = 15) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, {
-    headers,
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (response.status === 429) {
-    throw new Error("Reddit rate limit hit (HTTP 429). Will retry next cycle.");
-  }
-
-  if (response.status === 403) {
-    throw new Error(
-      "Reddit blocked unauthenticated request (HTTP 403). Add REDDIT_CLIENT_ID & REDDIT_CLIENT_SECRET to .env for OAuth."
-    );
-  }
-
-  if (!response.ok) {
-    throw new Error(`Reddit API error: HTTP ${response.status} ${response.statusText}`);
-  }
-
-  const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("application/json")) {
-    throw new Error(`Reddit returned non-JSON response (${contentType || "unknown"}).`);
-  }
-
-  const payload = await response.json();
-  const children = payload?.data?.children ?? [];
-
-  const newPosts = [];
-  for (const child of children) {
-    const post = child?.data;
-    if (!post?.id || seenPostIds.has(post.id)) continue;
-
-    recordSeenId(post.id);
-    newPosts.push({
-      id: post.id,
-      title: (post.title || "").trim(),
-      selftext: (post.selftext || "").trim(),
-      upvoteRatio: Number(post.upvote_ratio ?? 0),
-      score: Number(post.score ?? 0),
-      createdUtc: Number(post.created_utc ?? 0),
+  try {
+    const response = await fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(15000),
     });
-  }
 
-  return {
-    posts: newPosts,
-    totalFetched: children.length,
-  };
+    const contentType = response.headers.get("content-type") || "";
+    if (!response.ok || !contentType.includes("application/json")) {
+      if (!token && (response.status === 403 || response.status === 429 || !contentType.includes("application/json"))) {
+        return await fetchFromApeWisdom(limit);
+      }
+      throw new Error(`Reddit API error: HTTP ${response.status} ${response.statusText}`);
+    }
+
+    const payload = await response.json();
+    const children = payload?.data?.children ?? [];
+
+    const newPosts = [];
+    for (const child of children) {
+      const post = child?.data;
+      if (!post?.id || seenPostIds.has(post.id)) continue;
+
+      recordSeenId(post.id);
+      newPosts.push({
+        id: post.id,
+        title: (post.title || "").trim(),
+        selftext: (post.selftext || "").trim(),
+        upvoteRatio: Number(post.upvote_ratio ?? 0),
+        score: Number(post.score ?? 0),
+        createdUtc: Number(post.created_utc ?? 0),
+      });
+    }
+
+    return {
+      posts: newPosts,
+      totalFetched: children.length,
+      source: token ? "r/wallstreetbets (Reddit OAuth)" : "r/wallstreetbets (Reddit JSON)",
+    };
+  } catch (err) {
+    if (!token) {
+      return await fetchFromApeWisdom(limit);
+    }
+    throw err;
+  }
 }

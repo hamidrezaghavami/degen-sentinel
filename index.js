@@ -48,9 +48,9 @@ async function runCycle() {
   // 1. Fetch Reddit r/wallstreetbets posts
   let newPosts = [];
   try {
-    const { posts, totalFetched } = await fetchNewPosts(15);
+    const { posts, totalFetched, source } = await fetchNewPosts(15);
     newPosts = posts;
-    addLog(`Scraped r/wallstreetbets: ${newPosts.length} new / ${totalFetched} fetched.`);
+    addLog(`Scraped ${source}: ${newPosts.length} new / ${totalFetched} fetched.`);
   } catch (err) {
     cycleHasError = true;
     addLog(`Scraper error: ${err.message}`, "error");
