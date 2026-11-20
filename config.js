@@ -36,6 +36,8 @@ export const CONFIG = {
   GEMINI_MODEL: process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite",
   POLL_INTERVAL_SECONDS: parseNumber(process.env.POLL_INTERVAL_SECONDS, 120),
   MAX_TRADE_ALLOCATION_USD: parseNumber(process.env.MAX_TRADE_ALLOCATION_USD, 500),
+  TAKE_PROFIT_PCT: parseNumber(process.env.TAKE_PROFIT_PCT, 5),
+  STOP_LOSS_PCT: parseNumber(process.env.STOP_LOSS_PCT, 3),
   REDDIT_USER_AGENT:
     process.env.REDDIT_USER_AGENT?.trim() ||
     "macos:degen-sentinel:v1.0.0 (by /u/hamidrezaghavami)",

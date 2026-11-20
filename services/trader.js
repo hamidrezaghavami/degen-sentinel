@@ -134,12 +134,24 @@ export async function executeSignals(signals) {
         continue;
       }
 
-      const order = await broker.placeMarketOrder({ symbol: ticker, qty, side });
+      const tpFactor = CONFIG.TAKE_PROFIT_PCT / 100;
+      const slFactor = CONFIG.STOP_LOSS_PCT / 100;
+      const isBuy = side === "buy";
+      const takeProfitPrice = Number((price * (isBuy ? 1 + tpFactor : 1 - tpFactor)).toFixed(2));
+      const stopLossPrice = Number((price * (isBuy ? 1 - slFactor : 1 + slFactor)).toFixed(2));
+
+      const order = await broker.placeMarketOrder({
+        symbol: ticker,
+        qty,
+        side,
+        takeProfitPrice,
+        stopLossPrice,
+      });
       availableCash = Math.max(0, availableCash - qty * price);
 
       const execLabel = `${side.toUpperCase()} ${qty} @ ~$${price.toFixed(2)}`;
       events.push(
-        `ORDER PLACED [${broker.id.toUpperCase()}]: ${execLabel} ${ticker} (id: ${order.id}, status: ${order.status})`
+        `ORDER PLACED [${broker.id.toUpperCase()}]: ${execLabel} ${ticker} (TP $${takeProfitPrice} / SL $${stopLossPrice}, id: ${order.id})`
       );
       enrichedSignals.push({ ...signal, execution: execLabel });
     } catch (err) {
