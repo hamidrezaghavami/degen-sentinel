@@ -38,7 +38,7 @@ function addLog(message, level = "info") {
   }
 }
 
-async function runCycle() {
+async function runCycle(onBeforeRender = null) {
   if (state.shuttingDown) return;
 
   state.cycle += 1;
@@ -114,6 +114,10 @@ async function runCycle() {
   state.status = cycleHasError ? "ERROR" : "RUNNING";
   state.lastUpdated = new Date();
 
+  if (typeof onBeforeRender === "function") {
+    onBeforeRender();
+  }
+
   renderDashboard({
     status: state.status,
     cycle: state.cycle,
@@ -167,7 +171,12 @@ async function boot() {
     spinner.warn(`Initial Alpaca check failed (${err.message}); continuing daemon loop...`);
   }
 
-  await runCycle();
+  const cycleSpinner = ora({
+    text: "Running Cycle #1 (scraping r/wallstreetbets, analyzing with Gemini, syncing Alpaca)...",
+    color: "cyan",
+  }).start();
+
+  await runCycle(() => cycleSpinner.stop());
 }
 
 boot();

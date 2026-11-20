@@ -29,6 +29,6 @@
     "cli-table3": "^0.6.5",
     "dotenv": "^16.4.5",
     "ora": "^8.1.1",
-    "yahoo-finance2": "^2.13.3"
+    "yahoo-finance2": "^4.0.6"
   }
 }
