@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "Autonomous CLI paper-trading bot that polls r/wallstreetbets sentiment, analyzes tickers with Gemini AI, and executes contrarian paper trades on Alpaca.",
   "type": "module",
-  "packageManager": "pnpm@12.18.0",
+  "packageManager": "pnpm@12.21.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "once": "node index.js --once"
+    "once": "node index.js --once",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "keywords": [
     "alpaca",
@@ -31,5 +33,10 @@
     "dotenv": "^16.4.5",
     "ora": "^8.1.1",
     "yahoo-finance2": "^4.0.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0"
   }
 }
