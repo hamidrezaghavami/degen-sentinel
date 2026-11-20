@@ -61,32 +61,44 @@ export function renderDashboard({
 }) {
   const lines = [];
 
+  const termWidth = Math.max(72, process.stdout.columns || 80);
+  const boxWidth = Math.min(termWidth, 100);
+  const innerWidth = boxWidth - 2;
+
+  const statusText = ` ${status} `;
   const statusBadge =
     status === "ERROR"
-      ? chalk.bgRed.white.bold(` ${status} `)
+      ? chalk.bgRed.white.bold(statusText)
       : status === "POLLING"
-        ? chalk.bgYellow.black.bold(` ${status} `)
-        : chalk.bgGreen.black.bold(` ${status} `);
+        ? chalk.bgYellow.black.bold(statusText)
+        : chalk.bgGreen.black.bold(statusText);
 
   const timeStr = lastUpdated.toLocaleTimeString("en-US", { hour12: false });
 
-  // Header
+  // Responsive Header (never wraps on 80-col terminals)
+  const titlePlain =
+    boxWidth >= 82
+      ? " DEGEN-SENTINEL :: WSB Contrarian Paper Bot"
+      : " DEGEN-SENTINEL :: WSB Paper Bot";
+  const titleStyled =
+    boxWidth >= 82
+      ? " " + chalk.white.bold("DEGEN-SENTINEL") + chalk.gray(" :: WSB Contrarian Paper Bot")
+      : " " + chalk.white.bold("DEGEN-SENTINEL") + chalk.gray(" :: WSB Paper Bot");
+  const padLen = Math.max(1, innerWidth - titlePlain.length - statusText.length - 1);
+
+  lines.push(chalk.cyan.bold("╔" + "═".repeat(innerWidth) + "╗"));
   lines.push(
-    chalk.cyan.bold("╔══════════════════════════════════════════════════════════════════════════════╗")
-  );
-  lines.push(
-    chalk.cyan.bold("║ ") +
-      chalk.white.bold("DEGEN-SENTINEL") +
-      chalk.gray(" :: Autonomous r/wallstreetbets Contrarian Paper Bot   ") +
+    chalk.cyan.bold("║") +
+      titleStyled +
+      " ".repeat(padLen) +
       statusBadge +
-      chalk.cyan.bold(" ║")
+      " " +
+      chalk.cyan.bold("║")
   );
-  lines.push(
-    chalk.cyan.bold("╚══════════════════════════════════════════════════════════════════════════════╝")
-  );
+  lines.push(chalk.cyan.bold("╚" + "═".repeat(innerWidth) + "╝"));
   lines.push(
     chalk.gray(
-      `Cycle #${cycle}  |  Updated: ${timeStr}  |  Interval: ${pollIntervalSeconds}s  |  Press Ctrl+C to exit`
+      `Cycle #${cycle} | Updated: ${timeStr} | Interval: ${pollIntervalSeconds}s | Ctrl+C to exit`
     )
   );
   lines.push("");
@@ -163,19 +175,33 @@ export function renderDashboard({
   }
   lines.push("");
 
-  // Latest Signals
+  // Latest Signals (responsive columns so borders never break in 80-col terminals)
   lines.push(chalk.bold.white(`LATEST SIGNALS (${signals.length})`));
   if (signals.length > 0) {
+    const showSummary = termWidth >= 106;
+    const execWidth = showSummary ? 24 : Math.max(18, termWidth - 52);
+    const summaryWidth = Math.max(22, termWidth - 78);
+
     const sigTable = new Table({
-      head: [
-        chalk.cyan("Ticker"),
-        chalk.cyan("Sentiment"),
-        chalk.cyan("Hype"),
-        chalk.cyan("Action"),
-        chalk.cyan("Execution"),
-        chalk.cyan("Summary"),
-      ],
-      colWidths: [10, 18, 7, 9, 26, 36],
+      head: showSummary
+        ? [
+            chalk.cyan("Ticker"),
+            chalk.cyan("Sentiment"),
+            chalk.cyan("Hype"),
+            chalk.cyan("Action"),
+            chalk.cyan("Execution"),
+            chalk.cyan("Summary"),
+          ]
+        : [
+            chalk.cyan("Ticker"),
+            chalk.cyan("Sentiment"),
+            chalk.cyan("Hype"),
+            chalk.cyan("Action"),
+            chalk.cyan("Execution"),
+          ],
+      colWidths: showSummary
+        ? [9, 17, 7, 8, execWidth, summaryWidth]
+        : [9, 17, 7, 8, execWidth],
       wordWrap: true,
       style: { head: [], border: ["gray"] },
     });
@@ -186,14 +212,17 @@ export function renderDashboard({
           ? chalk.red.bold(`${sig.hype_score}/10`)
           : chalk.yellow(`${sig.hype_score}/10`);
 
-      sigTable.push([
+      const row = [
         chalk.white.bold(sig.ticker),
         formatSentiment(sig.sentiment),
         hypeStr,
         formatAction(sig.suggested_action),
         sig.execution || chalk.gray("PENDING"),
-        chalk.gray(sig.summary || ""),
-      ]);
+      ];
+      if (showSummary) {
+        row.push(chalk.gray(sig.summary || ""));
+      }
+      sigTable.push(row);
     }
     lines.push(sigTable.toString());
   } else {

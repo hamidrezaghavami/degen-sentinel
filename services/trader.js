@@ -100,8 +100,14 @@ export async function executeSignals(signals) {
   }
 
   let account;
+  let openOrderSymbols = new Set();
   try {
-    account = await getAccountSummary();
+    const [acc, openOrders] = await Promise.all([
+      getAccountSummary(),
+      getAlpaca().getOrders({ status: "open" }),
+    ]);
+    account = acc;
+    openOrderSymbols = new Set(openOrders.map((o) => o.symbol));
   } catch (err) {
     events.push(`Account check failed: ${err.message}`);
     return {
@@ -120,6 +126,11 @@ export async function executeSignals(signals) {
         ...signal,
         execution: hypeScore < 8 ? "IGNORED (Hype < 8)" : "HOLD",
       });
+      continue;
+    }
+
+    if (openOrderSymbols.has(ticker)) {
+      enrichedSignals.push({ ...signal, execution: "SKIPPED (Open Order)" });
       continue;
     }
 
