@@ -31,21 +31,6 @@ function formatAction(action) {
   }
 }
 
-function formatSentiment(sentiment) {
-  switch (sentiment) {
-    case "EXTREME_BULLISH":
-      return chalk.greenBright.bold(sentiment);
-    case "BULLISH":
-      return chalk.green(sentiment);
-    case "EXTREME_BEARISH":
-      return chalk.redBright.bold(sentiment);
-    case "BEARISH":
-      return chalk.red(sentiment);
-    default:
-      return chalk.yellow(sentiment || "NEUTRAL");
-  }
-}
-
 /**
  * Render the entire terminal dashboard in a single stdout write to prevent flicker.
  */

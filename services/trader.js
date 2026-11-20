@@ -81,8 +81,8 @@ export async function executeSignals(signals) {
 
   const broker = getBroker();
   let account;
-  let openOrderSymbols = new Set();
-  let openPositions = [];
+  let openOrderSymbols;
+  let openPositions;
 
   try {
     const [acc, openOrders, positions] = await Promise.all([
