@@ -35,10 +35,23 @@ export async function getOpenPositions() {
 }
 
 /**
- * Fetch current live market price via yahoo-finance2, falling back to the active
- * broker's quote endpoint if Yahoo Finance rate-limits the request.
+ * Fetch current live market price.
+ * Prefers the active broker's own quote (so bracket TP/SL always match the broker's
+ * base_price), falling back to yahoo-finance2 when unavailable.
  */
 export async function getCurrentPrice(symbol) {
+  const broker = getBroker();
+  if (typeof broker.getLatestPrice === "function") {
+    try {
+      const brokerPrice = Number(await broker.getLatestPrice(symbol));
+      if (Number.isFinite(brokerPrice) && brokerPrice > 0) {
+        return brokerPrice;
+      }
+    } catch {
+      // Fall through to yahoo-finance2
+    }
+  }
+
   try {
     const quote = await yahooFinance.quote(symbol);
     const price = Number(
@@ -51,15 +64,7 @@ export async function getCurrentPrice(symbol) {
       return price;
     }
   } catch {
-    // Fall through to broker market data fallback
-  }
-
-  const broker = getBroker();
-  if (typeof broker.getLatestPrice === "function") {
-    const fallbackPrice = Number(await broker.getLatestPrice(symbol));
-    if (Number.isFinite(fallbackPrice) && fallbackPrice > 0) {
-      return fallbackPrice;
-    }
+    // No quote available
   }
 
   throw new Error(`No valid market price returned for ${symbol}`);
