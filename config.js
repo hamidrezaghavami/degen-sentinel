@@ -41,9 +41,9 @@ export const CONFIG = {
 
   // Safer Strategy & Signal Verification Guardrails
   SAFE_MODE: (process.env.SAFE_MODE ?? "true").toLowerCase() !== "false",
-  MIN_CONFIDENCE: parseNumber(process.env.MIN_CONFIDENCE, 70),
+  MIN_CONFIDENCE: parseNumber(process.env.MIN_CONFIDENCE, 60),
   MIN_SAFETY_SCORE: parseNumber(process.env.MIN_SAFETY_SCORE, 65),
-  MAX_DAILY_VOLATILITY_PCT: parseNumber(process.env.MAX_DAILY_VOLATILITY_PCT, 6),
+  MAX_DAILY_VOLATILITY_PCT: parseNumber(process.env.MAX_DAILY_VOLATILITY_PCT, 8),
   MAX_OPEN_POSITIONS: parseNumber(process.env.MAX_OPEN_POSITIONS, 3),
 
   REDDIT_USER_AGENT:

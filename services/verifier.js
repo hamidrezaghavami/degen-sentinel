@@ -128,12 +128,11 @@ export async function verifySignal(signal) {
     hype_score: hypeScore = 5,
   } = signal;
 
-  const minHype = riskLevel === "LOW" ? 6 : 8;
-  if (action === "HOLD" || hypeScore < minHype) {
+  if (action === "HOLD") {
     return {
       approved: false,
       safetyScore: 0,
-      reason: action === "HOLD" ? "HOLD" : `Hype < ${minHype}`,
+      reason: "HOLD",
       metrics: null,
     };
   }
@@ -156,17 +155,9 @@ export async function verifySignal(signal) {
         metrics: null,
       };
     }
-    if (confidence < CONFIG.MIN_CONFIDENCE) {
-      return {
-        approved: false,
-        safetyScore: Math.min(40, confidence),
-        reason: `Low AI Conf (${confidence}%)`,
-        metrics: null,
-      };
-    }
   }
 
-  // Fetch technical bars for quantitative verification
+  // Fetch technical bars for quantitative verification on EVERY actionable signal
   const bars = await fetchDailyBars(ticker);
   if (bars.length < 15) {
     return {
@@ -192,28 +183,19 @@ export async function verifySignal(signal) {
     volatilityPct: volatilityPct !== null ? Number(volatilityPct.toFixed(2)) : null,
   };
 
-  // Volatility guard (avoid wild meme whipsaws)
-  if (CONFIG.SAFE_MODE && volatilityPct !== null && volatilityPct > CONFIG.MAX_DAILY_VOLATILITY_PCT) {
-    return {
-      approved: false,
-      safetyScore: 25,
-      reason: `High Vol (${volatilityPct.toFixed(1)}%/d)`,
-      metrics,
-    };
-  }
-
   let score = 40;
   const reasons = [];
 
-  // AI confidence contribution (up to +25)
-  score += Math.round((confidence / 100) * 25);
+  // AI confidence & hype contribution (up to +25)
+  score += Math.round((confidence / 100) * 20);
+  if (hypeScore >= 7) score += 5;
 
   if (action === "BUY") {
     // Safer BUY: confirm uptrend (price > SMA-20) and not severely overbought (RSI < 72)
     if (sma20 && lastPrice > sma20) {
       score += 20;
     } else {
-      score -= 20;
+      score -= 15;
       reasons.push("Below SMA20");
     }
 
@@ -225,7 +207,6 @@ export async function verifySignal(signal) {
     }
   } else {
     // Safer SHORT/SELL: never short a surging rocket!
-    // Require short-term rollover (price < SMA-5) OR extreme overbought exhaustion (RSI >= 68)
     const rollingOver = sma5 && lastPrice < sma5;
     const overbought = rsi14 !== null && rsi14 >= 68;
 
@@ -249,6 +230,26 @@ export async function verifySignal(signal) {
   if (riskLevel === "HIGH") score -= 20;
 
   const safetyScore = Math.max(0, Math.min(100, score));
+
+  // Volatility & confidence gates (after computing real safetyScore so dashboard shows it)
+  if (CONFIG.SAFE_MODE && volatilityPct !== null && volatilityPct > CONFIG.MAX_DAILY_VOLATILITY_PCT) {
+    return {
+      approved: false,
+      safetyScore: Math.min(safetyScore, 45),
+      reason: `High Vol (${volatilityPct.toFixed(1)}%/d)`,
+      metrics,
+    };
+  }
+
+  if (CONFIG.SAFE_MODE && confidence < CONFIG.MIN_CONFIDENCE) {
+    return {
+      approved: false,
+      safetyScore,
+      reason: `Low AI Conf (${confidence}%)`,
+      metrics,
+    };
+  }
+
   const approved = safetyScore >= CONFIG.MIN_SAFETY_SCORE;
 
   return {
