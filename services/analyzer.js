@@ -173,6 +173,48 @@ function normalizeAndFilterAnalysis(rawAnalysis) {
 }
 
 /**
+ * Deterministic fallback parser used ONLY if all Gemini models are temporarily
+ * unavailable (HTTP 503 high-demand spike). Extracts tickers and mention velocity
+ * from ApeWisdom WSB telemetry so the quantitative verifier can still evaluate them.
+ */
+function fallbackAnalyzeFromTelemetry(posts) {
+  const analysis = [];
+  for (const post of posts) {
+    const match = post.title?.match(
+      /^\$([A-Z]{1,5})\b.*?\((\d+)\s+mentions,\s*([+-]?\d+|NEW)%/i
+    );
+    if (!match) continue;
+    const ticker = match[1].toUpperCase();
+    if (IGNORED_TICKERS.has(ticker)) continue;
+
+    const mentions = Number(match[2] || 0);
+    const deltaPct = match[3] === "NEW" ? 100 : Number(match[3] || 0);
+    const isMemeSpike = deltaPct >= 250 || ["GME", "AMC", "BBBY"].includes(ticker);
+
+    const hypeScore = Math.max(
+      4,
+      Math.min(9, Math.round(4 + Math.min(3, mentions / 200) + (deltaPct > 50 ? 2 : deltaPct > 15 ? 1 : 0)))
+    );
+
+    analysis.push({
+      ticker,
+      sentiment: deltaPct >= 40 ? "EXTREME_BULLISH" : deltaPct >= 0 ? "BULLISH" : "NEUTRAL",
+      hype_score: hypeScore,
+      strategy: isMemeSpike
+        ? "SHORT_SQUEEZE_RISK"
+        : deltaPct >= 10
+          ? "MOMENTUM_BREAKOUT"
+          : "NOISE",
+      risk_level: isMemeSpike ? "HIGH" : mentions >= 150 ? "LOW" : "MEDIUM",
+      confidence: isMemeSpike ? 40 : deltaPct >= 15 ? 72 : 62,
+      summary: `WSB fallback: ${mentions} mentions (${deltaPct >= 0 ? `+${deltaPct}` : deltaPct}% 24h)`,
+      suggested_action: isMemeSpike ? "HOLD" : deltaPct >= 10 ? "BUY" : "HOLD",
+    });
+  }
+  return normalizeAndFilterAnalysis(analysis).slice(0, 8);
+}
+
+/**
  * Analyze aggregated Reddit posts using Google Gemini with strict JSON output
  * and risk-aware strategy recognition.
  *
@@ -187,12 +229,19 @@ export async function analyzeSentiment(posts) {
   const promptText = `Analyze these ${posts.length} recent r/wallstreetbets posts/metrics and return the structured JSON strategy & risk analysis:\n\n${formatPostsForPrompt(posts)}`;
 
   const client = getClient();
+  const modelsToTry = [
+    CONFIG.GEMINI_MODEL,
+    ...["gemini-3.1-flash-lite", "gemini-4-hydrogen", "gemma-4-31b-it"].filter(
+      (m) => m !== CONFIG.GEMINI_MODEL
+    ),
+  ];
+
   let interaction;
   let lastErr;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (const model of modelsToTry) {
     try {
       interaction = await client.interactions.create({
-        model: CONFIG.GEMINI_MODEL,
+        model,
         system_instruction: SYSTEM_INSTRUCTION,
         input: promptText,
         response_format: RESPONSE_SCHEMA,
@@ -202,14 +251,27 @@ export async function analyzeSentiment(posts) {
     } catch (err) {
       lastErr = err;
       const msg = String(err?.message || err);
-      if (attempt < 2 && (msg.includes("unusable") || msg.includes("fetch failed") || msg.includes("ECONNRESET"))) {
-        await new Promise((r) => setTimeout(r, 1000));
+      const isRetryable =
+        msg.includes("503") ||
+        msg.includes("high demand") ||
+        msg.includes("unusable") ||
+        msg.includes("fetch failed") ||
+        msg.includes("ECONNRESET");
+      if (isRetryable) {
+        await new Promise((r) => setTimeout(r, 600));
         continue;
       }
       throw err;
     }
   }
-  if (!interaction && lastErr) throw lastErr;
+
+  if (!interaction) {
+    const fallback = fallbackAnalyzeFromTelemetry(posts);
+    if (fallback.length > 0) {
+      return { analysis: fallback };
+    }
+    throw lastErr;
+  }
 
   const rawText = interaction?.output_text?.trim();
   if (!rawText) {
