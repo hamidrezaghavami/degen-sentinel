@@ -203,8 +203,8 @@ export function renderDashboard({
             : chalk.gray(`${score}%`);
 
       const tpSlStr =
-        sig.takeProfitPrice && sig.stopLossPrice
-          ? `${chalk.green(`$${sig.takeProfitPrice.toFixed(2)}`)} / ${chalk.red(`$${sig.stopLossPrice.toFixed(2)}`)}`
+        sig.takeProfitPrice && sig.stopLoss1Price
+          ? `${chalk.green(`$${sig.takeProfitPrice.toFixed(2)}`)} / ${chalk.red(`$${sig.stopLoss1Price.toFixed(2)}`)}${sig.stopLoss2Price ? chalk.gray(`-$${sig.stopLoss2Price.toFixed(2)}`) : ""}`
           : chalk.gray("-");
 
       const row = [

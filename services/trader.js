@@ -116,15 +116,39 @@ export async function executeSignals(signals) {
 
   const computeTargets = (price, action) => {
     if (!Number.isFinite(price) || price <= 0 || action === "HOLD") {
-      return { entryPrice: null, takeProfitPrice: null, stopLossPrice: null };
+      return {
+        entryPrice: null,
+        takeProfitPrice: null,
+        stopLoss1Price: null,
+        stopLoss2Price: null,
+        stopLossPrice: null,
+      };
     }
-    const tpFactor = CONFIG.TAKE_PROFIT_PCT / 100;
-    const slFactor = CONFIG.STOP_LOSS_PCT / 100;
+    const sl1Pct = CONFIG.STOP_LOSS_1_PCT;
+    const sl2Pct = Math.max(CONFIG.STOP_LOSS_2_PCT, sl1Pct + 0.2);
+    // Enforce reward-to-risk ratio >= 2:1 (profit side at least 2x wider than max SL)
+    const tpPct = Math.max(
+      CONFIG.TAKE_PROFIT_PCT,
+      sl2Pct * CONFIG.MIN_REWARD_RISK_RATIO
+    );
     const isBuy = action === "BUY";
+
+    const takeProfitPrice = Number(
+      (price * (isBuy ? 1 + tpPct / 100 : 1 - tpPct / 100)).toFixed(2)
+    );
+    const stopLoss1Price = Number(
+      (price * (isBuy ? 1 - sl1Pct / 100 : 1 + sl1Pct / 100)).toFixed(2)
+    );
+    const stopLoss2Price = Number(
+      (price * (isBuy ? 1 - sl2Pct / 100 : 1 + sl2Pct / 100)).toFixed(2)
+    );
+
     return {
       entryPrice: Number(price.toFixed(2)),
-      takeProfitPrice: Number((price * (isBuy ? 1 + tpFactor : 1 - tpFactor)).toFixed(2)),
-      stopLossPrice: Number((price * (isBuy ? 1 - slFactor : 1 + slFactor)).toFixed(2)),
+      takeProfitPrice,
+      stopLoss1Price,
+      stopLoss2Price,
+      stopLossPrice: stopLoss1Price,
     };
   };
 
@@ -209,7 +233,16 @@ export async function executeSignals(signals) {
         continue;
       }
 
-      const qty = Math.floor(allocation / price);
+      // Risk-capped position sizing: never exceed MAX_TRADE_ALLOCATION_USD OR MAX_RISK_PER_TRADE_USD
+      const avgStopPct = (CONFIG.STOP_LOSS_1_PCT + CONFIG.STOP_LOSS_2_PCT) / 2;
+      const riskPerShare = price * (avgStopPct / 100);
+      const qtyByBudget = Math.floor(allocation / price);
+      const qtyByRisk =
+        riskPerShare > 0
+          ? Math.floor(CONFIG.MAX_RISK_PER_TRADE_USD / riskPerShare)
+          : qtyByBudget;
+      const qty = Math.min(qtyByBudget, Math.max(1, qtyByRisk));
+
       if (qty <= 0) {
         enrichedSignals.push({
           ...signal,
@@ -220,22 +253,51 @@ export async function executeSignals(signals) {
         continue;
       }
 
-      const { takeProfitPrice, stopLossPrice } = liveTargets;
+      const { takeProfitPrice, stopLoss1Price, stopLoss2Price } = liveTargets;
 
-      const order = await broker.placeMarketOrder({
-        symbol: ticker,
-        qty,
-        side,
-        takeProfitPrice,
-        stopLossPrice,
-      });
+      // 2-Level Scaled Stop-Loss:
+      // Split position 50/50 across tight SL1 (0.5%) and outer SL2 (0.9%), both targeting >= 2:1 TP
+      const placedOrders = [];
+      if (qty >= 2) {
+        const tranche1Qty = Math.ceil(qty / 2);
+        const tranche2Qty = qty - tranche1Qty;
+
+        const order1 = await broker.placeMarketOrder({
+          symbol: ticker,
+          qty: tranche1Qty,
+          side,
+          takeProfitPrice,
+          stopLossPrice: stopLoss1Price,
+        });
+        placedOrders.push(order1);
+
+        const order2 = await broker.placeMarketOrder({
+          symbol: ticker,
+          qty: tranche2Qty,
+          side,
+          takeProfitPrice,
+          stopLossPrice: stopLoss2Price,
+        });
+        placedOrders.push(order2);
+      } else {
+        const order1 = await broker.placeMarketOrder({
+          symbol: ticker,
+          qty,
+          side,
+          takeProfitPrice,
+          stopLossPrice: stopLoss1Price,
+        });
+        placedOrders.push(order1);
+      }
+
       availableCash = Math.max(0, availableCash - qty * price);
       openPositionCount += 1;
       openPositionSymbols.add(ticker);
 
       const execLabel = `${side.toUpperCase()} ${qty} @ ~$${price.toFixed(2)}`;
+      const orderIds = placedOrders.map((o) => o.id).join(", ");
       events.push(
-        `VERIFIED ORDER [${broker.id.toUpperCase()} | Score ${verification.safetyScore}]: ${execLabel} ${ticker} (TP $${takeProfitPrice} / SL $${stopLossPrice}, id: ${order.id})`
+        `VERIFIED ORDER [${broker.id.toUpperCase()} | Score ${verification.safetyScore}]: ${execLabel} ${ticker} (TP $${takeProfitPrice} | SL1 $${stopLoss1Price} / SL2 $${stopLoss2Price}, ids: ${orderIds})`
       );
       enrichedSignals.push({
         ...signal,

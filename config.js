@@ -36,8 +36,17 @@ export const CONFIG = {
   GEMINI_MODEL: process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite",
   POLL_INTERVAL_SECONDS: parseNumber(process.env.POLL_INTERVAL_SECONDS, 120),
   MAX_TRADE_ALLOCATION_USD: parseNumber(process.env.MAX_TRADE_ALLOCATION_USD, 500),
-  TAKE_PROFIT_PCT: parseNumber(process.env.TAKE_PROFIT_PCT, 1.2),
-  STOP_LOSS_PCT: parseNumber(process.env.STOP_LOSS_PCT, 0.8),
+  MAX_RISK_PER_TRADE_USD: parseNumber(process.env.MAX_RISK_PER_TRADE_USD, 3.5),
+
+  // 2-Level Scaled Stop-Loss & Enforced >= 2:1 Reward-to-Risk Take-Profit
+  STOP_LOSS_1_PCT: parseNumber(process.env.STOP_LOSS_1_PCT, 0.5),
+  STOP_LOSS_2_PCT: parseNumber(process.env.STOP_LOSS_2_PCT, 0.9),
+  MIN_REWARD_RISK_RATIO: parseNumber(process.env.MIN_REWARD_RISK_RATIO, 2.0),
+  TAKE_PROFIT_PCT: Math.max(
+    parseNumber(process.env.TAKE_PROFIT_PCT, 1.8),
+    parseNumber(process.env.STOP_LOSS_2_PCT, 0.9) *
+      parseNumber(process.env.MIN_REWARD_RISK_RATIO, 2.0)
+  ),
 
   // Safer Strategy & Signal Verification Guardrails
   SAFE_MODE: (process.env.SAFE_MODE ?? "true").toLowerCase() !== "false",
