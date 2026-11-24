@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node index.js",
     "once": "node index.js --once",
+    "stats": "node stats.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

@@ -8,8 +8,9 @@ const parseNumber = (value, fallback) => {
 };
 
 export const CONFIG = {
-  // Active broker: alpaca | ibkr | tradier | schwab
-  BROKER: (process.env.BROKER || "alpaca").trim().toLowerCase(),
+  // Active broker: paper (built-in exact local ledger) | alpaca | ibkr | tradier | schwab
+  BROKER: (process.env.BROKER || "paper").trim().toLowerCase(),
+  PAPER_STARTING_CASH: parseNumber(process.env.PAPER_STARTING_CASH, 1000),
 
   // 1. Alpaca
   ALPACA_API_KEY_ID: process.env.ALPACA_API_KEY_ID?.trim() || "",
@@ -86,6 +87,9 @@ export function validateConfig() {
   if (!CONFIG.GEMINI_API_KEY) missing.push("GEMINI_API_KEY");
 
   switch (CONFIG.BROKER) {
+    case "paper":
+      // Built-in local exact paper ledger requires no external broker credentials
+      break;
     case "alpaca":
       if (!CONFIG.ALPACA_API_KEY_ID) missing.push("ALPACA_API_KEY_ID");
       if (!CONFIG.ALPACA_API_SECRET_KEY) missing.push("ALPACA_API_SECRET_KEY");
@@ -103,7 +107,7 @@ export function validateConfig() {
       break;
     default:
       throw new Error(
-        `Unsupported BROKER="${CONFIG.BROKER}". Choose one of: alpaca, ibkr, tradier, schwab.`
+        `Unsupported BROKER="${CONFIG.BROKER}". Choose one of: paper, alpaca, ibkr, tradier, schwab.`
       );
   }
 

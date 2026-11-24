@@ -1,10 +1,12 @@
 import { CONFIG } from "../../config.js";
+import { paperBroker } from "./paper.js";
 import { alpacaBroker } from "./alpaca.js";
 import { ibkrBroker } from "./ibkr.js";
 import { tradierBroker } from "./tradier.js";
 import { schwabBroker } from "./schwab.js";
 
 const BROKERS = {
+  paper: paperBroker,
   alpaca: alpacaBroker,
   ibkr: ibkrBroker,
   tradier: tradierBroker,
