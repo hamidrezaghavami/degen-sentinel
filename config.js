@@ -8,8 +8,8 @@ const parseNumber = (value, fallback) => {
 };
 
 export const CONFIG = {
-  // Active broker: paper (built-in exact local ledger) | alpaca | ibkr | tradier | schwab
-  BROKER: (process.env.BROKER || "paper").trim().toLowerCase(),
+  // Active broker: alpaca (default) | ibkr | tradier | schwab | paper
+  BROKER: (process.env.BROKER || "alpaca").trim().toLowerCase(),
   PAPER_STARTING_CASH: parseNumber(process.env.PAPER_STARTING_CASH, 1000),
 
   // 1. Alpaca
