@@ -52,6 +52,47 @@ export const alpacaBroker = {
     return Number(trade?.Price ?? trade?.p ?? 0);
   },
 
+  async getClosedStats() {
+    const activities = await getClient().getAccountActivities({
+      activityTypes: "FILL",
+      pageSize: 100,
+    });
+    const sorted = [...activities].sort(
+      (a, b) => new Date(a.transaction_time) - new Date(b.transaction_time)
+    );
+    const state = {};
+    const closed = [];
+
+    for (const fill of sorted) {
+      const sym = fill.symbol;
+      if (!state[sym]) state[sym] = { qty: 0, cashFlow: 0 };
+      const s = state[sym];
+      const q = Number(fill.qty);
+      const p = Number(fill.price);
+      s.qty += fill.side === "buy" ? q : -q;
+      s.cashFlow += fill.side === "buy" ? -(q * p) : q * p;
+
+      if (Math.abs(s.qty) < 1e-9) {
+        closed.push(Number(s.cashFlow.toFixed(2)));
+        state[sym] = { qty: 0, cashFlow: 0 };
+      }
+    }
+
+    const wins = closed.filter((v) => v > 0);
+    const losses = closed.filter((v) => v < 0);
+    const grossGain = wins.reduce((sum, v) => sum + v, 0);
+    const grossLoss = losses.reduce((sum, v) => sum + v, 0);
+    return {
+      total: closed.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: closed.length > 0 ? (wins.length / closed.length) * 100 : 0,
+      grossGain: Number(grossGain.toFixed(2)),
+      grossLoss: Number(grossLoss.toFixed(2)),
+      netPnL: Number((grossGain + grossLoss).toFixed(2)),
+    };
+  },
+
   async placeMarketOrder({
     symbol,
     qty,

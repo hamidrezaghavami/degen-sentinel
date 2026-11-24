@@ -262,6 +262,24 @@ export const paperBroker = {
     return fetchLivePrice(symbol);
   },
 
+  async getClosedStats() {
+    const ledger = loadLedger();
+    const closed = (ledger.closedTrades || []).map((t) => Number(t.pnl ?? 0));
+    const wins = closed.filter((v) => v > 0);
+    const losses = closed.filter((v) => v < 0);
+    const grossGain = wins.reduce((sum, v) => sum + v, 0);
+    const grossLoss = losses.reduce((sum, v) => sum + v, 0);
+    return {
+      total: closed.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: closed.length > 0 ? (wins.length / closed.length) * 100 : 0,
+      grossGain: round2(grossGain),
+      grossLoss: round2(grossLoss),
+      netPnL: round2(grossGain + grossLoss),
+    };
+  },
+
   async placeMarketOrder({
     symbol,
     qty,

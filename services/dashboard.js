@@ -41,6 +41,7 @@ export function renderDashboard({
   pollIntervalSeconds = 120,
   account = null,
   positions = [],
+  closedStats = null,
   signals = [],
   logs = [],
   lastUpdated = new Date(),
@@ -193,18 +194,18 @@ export function renderDashboard({
       style: { head: [], border: ["gray"] },
     });
 
-    for (const sig of signals.slice(0, 8)) {
+    for (const sig of signals.slice(0, 6)) {
       const score = Number(sig.safetyScore ?? 0);
       const safeStr =
-        score >= 65
+        score >= 75
           ? chalk.green.bold(`${score}%`)
-          : score >= 40
+          : score >= 45
             ? chalk.yellow(`${score}%`)
             : chalk.gray(`${score}%`);
 
       const tpSlStr =
         sig.takeProfitPrice && sig.stopLoss1Price
-          ? `TP ${chalk.green(`$${sig.takeProfitPrice.toFixed(2)}`)}\nSL ${chalk.red(`$${sig.stopLoss1Price.toFixed(2)}`)}${sig.stopLoss2Price ? chalk.gray(`/$${sig.stopLoss2Price.toFixed(2)}`) : ""}`
+          ? `${chalk.green(`$${sig.takeProfitPrice.toFixed(1)}`)}/${chalk.red(`$${sig.stopLoss1Price.toFixed(1)}`)}`
           : chalk.gray("-");
 
       const row = [
@@ -223,12 +224,26 @@ export function renderDashboard({
   } else {
     lines.push(chalk.gray("  No actionable ticker signals extracted yet."));
   }
+
+  // Compact 1-line Closed Positions Summary (fits cleanly on 1 screen)
+  if (closedStats) {
+    const winStr = chalk.green.bold(`${closedStats.wins}W`);
+    const lossStr = chalk.red.bold(`${closedStats.losses}L`);
+    const rateStr = chalk.cyan(`${closedStats.winRate.toFixed(1)}%`);
+    const gainStr = chalk.green(`+${formatMoney(closedStats.grossGain)}`);
+    const lostStr = chalk.red(formatMoney(closedStats.grossLoss));
+    const netStr = formatPnl(closedStats.netPnL);
+    lines.push(
+      chalk.bold.white("CLOSED: ") +
+        `${closedStats.total} pos | ${winStr}/${lossStr} (${rateStr}) | Gain ${gainStr} | Loss ${lostStr} | Net ${netStr}`
+    );
+  }
   lines.push("");
 
-  // Recent Activity Log
-  lines.push(chalk.bold.white("RECENT ACTIVITY LOG"));
+  // Compact Activity Log (last 4 lines to keep everything on 1 screen)
+  lines.push(chalk.bold.white("ACTIVITY LOG"));
   if (logs.length > 0) {
-    for (const entry of logs.slice(-8)) {
+    for (const entry of logs.slice(-4)) {
       lines.push(`  ${entry}`);
     }
   } else {

@@ -7,6 +7,7 @@ import {
   getActiveBrokerName,
   getAccountSummary,
   getOpenPositions,
+  getClosedStats,
   executeSignals,
 } from "./services/trader.js";
 import { renderDashboard } from "./services/dashboard.js";
@@ -18,6 +19,7 @@ const state = {
   status: "STARTING",
   account: null,
   positions: [],
+  closedStats: null,
   signals: [],
   logs: [],
   lastUpdated: new Date(),
@@ -99,17 +101,19 @@ async function runCycle(onBeforeRender = null) {
     }
   }
 
-  // 4. Refresh Alpaca Account & Open Positions
+  // 4. Refresh Broker Account, Open Positions & Closed Stats
   try {
-    const [account, positions] = await Promise.all([
+    const [account, positions, closedStats] = await Promise.all([
       getAccountSummary(),
       getOpenPositions(),
+      getClosedStats().catch(() => state.closedStats),
     ]);
     state.account = account;
     state.positions = positions;
+    state.closedStats = closedStats;
   } catch (err) {
     cycleHasError = true;
-    addLog(`Alpaca sync error: ${err.message}`, "error");
+    addLog(`Broker sync error: ${err.message}`, "error");
   }
 
   state.status = cycleHasError ? "ERROR" : "RUNNING";
@@ -126,6 +130,7 @@ async function runCycle(onBeforeRender = null) {
     pollIntervalSeconds: CONFIG.POLL_INTERVAL_SECONDS,
     account: state.account,
     positions: state.positions,
+    closedStats: state.closedStats,
     signals: state.signals,
     logs: state.logs,
     lastUpdated: state.lastUpdated,

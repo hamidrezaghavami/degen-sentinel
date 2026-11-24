@@ -35,6 +35,17 @@ export async function getOpenPositions() {
 }
 
 /**
+ * Fetch compact closed-position win/loss statistics if supported by the active broker.
+ */
+export async function getClosedStats() {
+  const broker = getBroker();
+  if (typeof broker.getClosedStats === "function") {
+    return broker.getClosedStats();
+  }
+  return null;
+}
+
+/**
  * Fetch current live market price.
  * Prefers the active broker's own quote (so bracket TP/SL always match the broker's
  * base_price), falling back to yahoo-finance2 when unavailable.
