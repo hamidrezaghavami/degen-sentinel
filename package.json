@@ -9,6 +9,7 @@
     "start": "node index.js",
     "once": "node index.js --once",
     "stats": "node stats.js",
+    "web": "node web.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
