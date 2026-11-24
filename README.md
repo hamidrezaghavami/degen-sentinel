@@ -49,6 +49,24 @@ An autonomous Node.js CLI paper-trading bot that monitors live retail sentiment 
    pnpm once
    ```
 
+## Docker / Docker Compose
+
+Run `degen-sentinel` in an isolated Alpine container (your `.env` is injected at runtime and never baked into the image):
+
+```bash
+# Build and start in background (auto-restarts unless stopped)
+docker compose up -d --build
+
+# Watch the live terminal dashboard
+docker compose logs -f
+
+# Run a single cycle and exit
+docker compose run --rm degen-sentinel node index.js --once
+
+# Stop and remove container
+docker compose down
+```
+
 ## Project Structure
 
 ```text
