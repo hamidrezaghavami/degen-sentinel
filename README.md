@@ -1,95 +1,73 @@
 # degen-sentinel
 
-An autonomous Node.js CLI paper-trading bot that monitors live retail sentiment on **r/wallstreetbets**, extracts hot stock tickers using **Google Gemini** with structured JSON output, applies contrarian/inverse logic on extreme hype, and automatically executes simulated orders via the **Alpaca Paper Trading API**.
+An autonomous Node.js CLI paper-trading bot that polls live retail sentiment from **r/wallstreetbets**, enriches top tickers with live **Yahoo Finance fundamentals**, analyzes strategy & risk using **Google Gemini** (structured JSON output), verifies setups quantitatively (`SMA-5`/`SMA-20`, `RSI-14`, volume, volatility), and executes **3-level laddered entries, 3-level take-profits (`40/40/20`), and 2-level stop-losses (`50/50`)** across **Alpaca, IBKR, Tradier, or Charles Schwab**.
 
-> **Disclaimer:** This project is strictly for educational and paper-trading experimentation. It is not financial advice.
+> **Disclaimer:** Strictly for educational and paper-trading experimentation. Not financial advice.
 
 ## Quick Start (One Line)
 
+Add your API keys to `.env` (copied from `.env.example`), then run from anywhere—no `cd` required:
+
 ```bash
-cp .env.example .env && ./run.sh
+~/Desktop/Code/degen-sentinel/run.sh
 ```
 
-`./run.sh` automatically runs inside **Docker Compose** (production hardened: multi-stage Alpine image, non-root user, read-only rootfs, healthcheck, 256MB memory cap, auto-restart) if Docker is running, or falls back to local `pnpm` / Node.js automatically.
+Or from inside the project folder:
 
-- Run in background (Docker): `./run.sh --bg`
-- Run a single cycle: `./run.sh --once`
+```bash
+./run.sh
+```
+
+`run.sh` automatically switches into the project directory and runs inside **production Docker Compose** (multi-stage Alpine image, non-root user, read-only rootfs, healthcheck, 256MB memory cap, auto-restart) if Docker is running, or falls back seamlessly to local `pnpm` / Node.js.
+
+- Background daemon (Docker): `./run.sh --bg`
+- Single scan & exit: `./run.sh --once`
 
 ## Features
 
-- **Reddit Sentiment Scraper (`services/scraper.js`):** Polls the newest 15 posts from `r/wallstreetbets` using native `fetch` and deduplicates post IDs in-memory.
-- **Structured AI Sentiment Engine (`services/analyzer.js`):** Uses `@google/genai` (defaulting to free-tier friendly `gemini-3.5-flash-lite`) with strict JSON Schema output, filtering out WSB slang/acronyms (`DD`, `YOLO`, `HOLD`, `MOON`, `CEO`, etc.) and applying inverse contrarian logic when `hype_score > 8`.
-- **Multi-Broker Execution (`services/trader.js` + `services/brokers/`):** Supports the top 4 retail/algo brokers via a unified adapter interface—switch brokers with a single `BROKER=` env var:
-  - **Alpaca** (`BROKER=alpaca`, default) — Paper & Live via `@alpacahq/alpaca-trade-api`
-  - **Interactive Brokers / IBKR** (`BROKER=ibkr`) — Client Portal Web API
-  - **Tradier** (`BROKER=tradier`) — Sandbox & Live REST API
-  - **Charles Schwab** (`BROKER=schwab`) — Official Trader API
-  - Fetches live quotes with `yahoo-finance2` (with broker fallback), sizes positions against `MAX_TRADE_ALLOCATION_USD`, and skips tickers with open pending orders to avoid wash trades.
-- **Flicker-Free Terminal Dashboard (`services/dashboard.js`):** Renders live account metrics, open positions with color-coded PnL, latest AI signals, and an activity log using `chalk` and `cli-table3`.
-- **Resilient Autonomous Loop (`index.js`):** Non-overlapping polling with full error isolation and graceful `SIGINT`/`SIGTERM` shutdown.
+- **Live WSB Scraper (`services/scraper.js`):** Fetches newest `r/wallstreetbets` posts via native `fetch` with Reddit OAuth support and automatic ApeWisdom live fallback.
+- **Live Fundamentals Enrichment (`services/fundamentals.js`):** Fetches Market Cap, Forward P/E, Revenue Growth, Profit Margins, 52-week range position, Analyst Consensus, and Target Upside before Gemini evaluates any ticker.
+- **Risk-Aware AI Engine (`services/analyzer.js`):** Uses `@google/genai` with strict JSON Schema output, automatic model fallback on `503` spikes, and squeeze/meme-trap protection.
+- **Quantitative Signal Verifier (`services/verifier.js`):** Validates `Price > SMA5 > SMA20` trend stack, `RSI-14` sweet spot (`45–68`), volume surge confirmation, and daily volatility caps (`MIN_SAFETY_SCORE=75`).
+- **Scaled Multi-Broker Execution (`services/trader.js` + `services/brokers/`):**
+  - Supports **Alpaca** (`BROKER=alpaca`), **Interactive Brokers** (`ibkr`), **Tradier** (`tradier`), and **Charles Schwab** (`schwab`).
+  - **3-Level Dip Entry** (`40%` market / `40%` `-0.35%` limit / `20%` `-0.70%` limit).
+  - **3-Level Take-Profit** (`TP1 40%` / `TP2 40%` / `TP3 20%`, enforced `>= 2:1` reward-to-risk).
+  - **2-Level Stop-Loss** (`SL1 50%` at `-0.5%` / `SL2 50%` at `-0.9%`), per-trade dollar risk cap, max 10 trades/day, and daily drawdown circuit breaker.
+- **Responsive Terminal Dashboard (`services/dashboard.js`):** Flicker-free UI showing Account Overview, Open Positions, and Signals with live Safety % and `TP / SL1-SL2` levels.
 
-## Setup
+## Key Environment Variables (`.env`)
 
-1. **Install dependencies:**
-   ```bash
-   pnpm install
-   ```
+| Variable | Description | Default |
+| --- | --- | --- |
+| `BROKER` | Active broker (`alpaca`, `ibkr`, `tradier`, `schwab`) | `alpaca` |
+| `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` | Alpaca Paper API credentials | *(required for alpaca)* |
+| `GEMINI_API_KEY` | Google Gemini API key | *(required)* |
+| `GEMINI_MODEL` | Primary Gemini model ID | `gemini-3.5-flash-lite` |
+| `MAX_TRADE_ALLOCATION_USD` | Max USD allocation per trade | `500` |
+| `MAX_RISK_PER_TRADE_USD` | Max dollar risk per trade | `3.5` |
+| `MAX_DAILY_TRADES` | Daily cap on executed trades | `10` |
+| `SAFE_MODE` | Enable quantitative & risk guardrails | `true` |
 
-2. **Configure environment variables:**
-   Copy `.env.example` to `.env` and fill in your API keys:
-   ```bash
-   cp .env.example .env
-   ```
-
-   | Variable | Description | Default |
-   | --- | --- | --- |
-   | `ALPACA_API_KEY_ID` | Alpaca Paper Trading Key ID | *(required)* |
-   | `ALPACA_API_SECRET_KEY` | Alpaca Paper Trading Secret Key | *(required)* |
-   | `ALPACA_PAPER` | Use Alpaca paper trading endpoint | `true` |
-   | `GEMINI_API_KEY` | Google Gemini API key | *(required)* |
-   | `GEMINI_MODEL` | Gemini model ID | `gemini-3.5-flash-lite` |
-   | `POLL_INTERVAL_SECONDS` | Polling cadence in seconds | `120` |
-   | `MAX_TRADE_ALLOCATION_USD` | Max USD allocation per trade | `500` |
-
-3. **Run the bot:**
-   ```bash
-   # Start autonomous daemon loop
-   pnpm start
-
-   # Run a single scrape -> analyze -> trade -> render cycle
-   pnpm once
-   ```
-
-## Docker / Docker Compose
-
-Run `degen-sentinel` in an isolated Alpine container (your `.env` is injected at runtime and never baked into the image):
-
-```bash
-# Build and start in background (auto-restarts unless stopped)
-docker compose up -d --build
-
-# Watch the live terminal dashboard
-docker compose logs -f
-
-# Run a single cycle and exit
-docker compose run --rm degen-sentinel node index.js --once
-
-# Stop and remove container
-docker compose down
-```
+See [.env.example](.env.example) for all broker and tuning options.
 
 ## Project Structure
 
 ```text
 degen-sentinel/
+├── run.sh                 # One-line launcher (Docker Compose or local fallback)
+├── Dockerfile             # Hardened multi-stage Node 22 Alpine image
+├── docker-compose.yml     # Production Compose config (read-only, limits, auto-restart)
 ├── config.js              # Environment loader & validation
-├── index.js               # Main autonomous event loop & shutdown hooks
+├── index.js               # Autonomous event loop & graceful shutdown
 ├── services/
-│   ├── scraper.js         # r/wallstreetbets JSON fetcher & deduplicator
-│   ├── analyzer.js        # Gemini structured JSON sentiment analyzer
-│   ├── trader.js          # Alpaca Paper API & yahoo-finance2 execution
-│   └── dashboard.js       # Flicker-free terminal UI renderer
+│   ├── scraper.js         # r/wallstreetbets scraper + ApeWisdom fallback
+│   ├── fundamentals.js    # Live Yahoo Finance fundamentals snapshot
+│   ├── analyzer.js        # Gemini structured JSON strategy & risk analyzer
+│   ├── verifier.js        # SMA/RSI/volume/volatility quantitative verifier
+│   ├── trader.js          # 3-level entry/TP + 2-level SL execution engine
+│   ├── dashboard.js       # Responsive flicker-free terminal UI
+│   └── brokers/           # Alpaca, IBKR, Tradier, and Schwab adapters
 ├── .env.example
-├── .gitignore
 └── package.json
 ```
