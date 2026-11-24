@@ -1,23 +1,25 @@
-FROM node:22-alpine
-
+# Stage 1: Install production dependencies
+FROM node:22-alpine AS deps
 WORKDIR /app
-
-# Enable pnpm via corepack matching package.json packageManager
 RUN corepack enable && corepack prepare pnpm@12.18.0 --activate
-
-# Install production dependencies using lockfile cache layer
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 
-# Copy application source
-COPY config.js index.js ./
-COPY services ./services
+# Stage 2: Minimal hardened runtime image
+FROM node:22-alpine AS runner
+WORKDIR /app
 
-# Run as non-root user
-RUN chown -R node:node /app
+ENV NODE_ENV=production \
+    FORCE_COLOR=1 \
+    COLUMNS=110
+
+COPY --from=deps --chown=node:node /app/node_modules ./node_modules
+COPY --chown=node:node package.json config.js index.js ./
+COPY --chown=node:node services ./services
+
 USER node
 
-ENV NODE_ENV=production
-ENV FORCE_COLOR=1
+HEALTHCHECK --interval=60s --timeout=5s --start-period=15s --retries=3 \
+  CMD pgrep -f "node index.js" > /dev/null || exit 1
 
 CMD ["node", "index.js"]

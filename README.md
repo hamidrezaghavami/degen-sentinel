@@ -4,6 +4,17 @@ An autonomous Node.js CLI paper-trading bot that monitors live retail sentiment 
 
 > **Disclaimer:** This project is strictly for educational and paper-trading experimentation. It is not financial advice.
 
+## Quick Start (One Line)
+
+```bash
+cp .env.example .env && ./run.sh
+```
+
+`./run.sh` automatically runs inside **Docker Compose** (production hardened: multi-stage Alpine image, non-root user, read-only rootfs, healthcheck, 256MB memory cap, auto-restart) if Docker is running, or falls back to local `pnpm` / Node.js automatically.
+
+- Run in background (Docker): `./run.sh --bg`
+- Run a single cycle: `./run.sh --once`
+
 ## Features
 
 - **Reddit Sentiment Scraper (`services/scraper.js`):** Polls the newest 15 posts from `r/wallstreetbets` using native `fetch` and deduplicates post IDs in-memory.
