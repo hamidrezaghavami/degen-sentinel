@@ -38,10 +38,28 @@ export const CONFIG = {
   MAX_TRADE_ALLOCATION_USD: parseNumber(process.env.MAX_TRADE_ALLOCATION_USD, 500),
   MAX_RISK_PER_TRADE_USD: parseNumber(process.env.MAX_RISK_PER_TRADE_USD, 3.5),
 
-  // 2-Level Scaled Stop-Loss & Enforced >= 2:1 Reward-to-Risk Take-Profit
+  // 3-Level Laddered Entry (buy dips / short bounces)
+  ENTRY_DIP_2_PCT: parseNumber(process.env.ENTRY_DIP_2_PCT, 0.35),
+  ENTRY_DIP_3_PCT: parseNumber(process.env.ENTRY_DIP_3_PCT, 0.7),
+
+  // 2-Level Scaled Stop-Loss (SL1 50% / SL2 50%)
   STOP_LOSS_1_PCT: parseNumber(process.env.STOP_LOSS_1_PCT, 0.5),
   STOP_LOSS_2_PCT: parseNumber(process.env.STOP_LOSS_2_PCT, 0.9),
+
+  // 3-Level Scaled Take-Profit (TP1 40% / TP2 40% / TP3 20%, enforced >= 2:1 RR on TP2+)
   MIN_REWARD_RISK_RATIO: parseNumber(process.env.MIN_REWARD_RISK_RATIO, 2.0),
+  TP1_PCT: parseNumber(process.env.TP1_PCT, 1.0),
+  TP2_PCT: Math.max(
+    parseNumber(process.env.TP2_PCT, 1.8),
+    parseNumber(process.env.STOP_LOSS_2_PCT, 0.9) *
+      parseNumber(process.env.MIN_REWARD_RISK_RATIO, 2.0)
+  ),
+  TP3_PCT: Math.max(
+    parseNumber(process.env.TP3_PCT, 2.6),
+    parseNumber(process.env.STOP_LOSS_2_PCT, 0.9) *
+      parseNumber(process.env.MIN_REWARD_RISK_RATIO, 2.0) +
+      0.8
+  ),
   TAKE_PROFIT_PCT: Math.max(
     parseNumber(process.env.TAKE_PROFIT_PCT, 1.8),
     parseNumber(process.env.STOP_LOSS_2_PCT, 0.9) *

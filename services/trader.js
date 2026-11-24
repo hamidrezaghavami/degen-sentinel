@@ -71,7 +71,158 @@ export async function getCurrentPrice(symbol) {
 }
 
 /**
- * Evaluate signals with hype_score >= 8 and execute market orders on the active broker.
+ * Build a 3-Level Entry (40%/40%/20%) + 3-Level TP (40%/40%/20%) + 2-Level SL (50%/50%)
+ * bracket execution ladder.
+ *
+ * For qty >= 5, splits cleanly into 4 bracket legs so:
+ *  - Entries: Level 1 Market (40%), Level 2 Dip Limit (40% = 10% + 30%), Level 3 Dip Limit (20%)
+ *  - Take-Profits: TP1 (40%), TP2 (40%), TP3 (20%)
+ *  - Stop-Losses: SL1 (50% = 40% + 10%), SL2 (50% = 30% + 20%)
+ *
+ * For smaller share counts (qty 1..4), collapses cleanly without zero-share legs.
+ */
+export function buildScaledOrderPlan({ price, qty, side }) {
+  const isBuy = side === "buy";
+  const round2 = (n) => Number(n.toFixed(2));
+  const dir = isBuy ? 1 : -1;
+
+  const entry1 = round2(price);
+  const entry2 = round2(price * (1 - dir * (CONFIG.ENTRY_DIP_2_PCT / 100)));
+  const entry3 = round2(price * (1 - dir * (CONFIG.ENTRY_DIP_3_PCT / 100)));
+
+  const sl1Pct = CONFIG.STOP_LOSS_1_PCT;
+  const sl2Pct = Math.max(CONFIG.STOP_LOSS_2_PCT, sl1Pct + 0.2);
+  const tp1Pct = CONFIG.TP1_PCT;
+  const tp2Pct = Math.max(CONFIG.TP2_PCT, sl2Pct * CONFIG.MIN_REWARD_RISK_RATIO);
+  const tp3Pct = Math.max(CONFIG.TP3_PCT, tp2Pct + 0.8);
+
+  const calcTp = (base, pct) => round2(base * (1 + dir * (pct / 100)));
+  const calcSl = (base, pct) => round2(base * (1 - dir * (pct / 100)));
+
+  if (qty <= 1) {
+    return [
+      {
+        label: "E1/TP2/SL1",
+        qty: 1,
+        limitPrice: null,
+        entryPrice: entry1,
+        takeProfitPrice: calcTp(entry1, tp2Pct),
+        stopLossPrice: calcSl(entry1, sl1Pct),
+      },
+    ];
+  }
+
+  if (qty === 2) {
+    return [
+      {
+        label: "E1/TP1/SL1",
+        qty: 1,
+        limitPrice: null,
+        entryPrice: entry1,
+        takeProfitPrice: calcTp(entry1, tp1Pct),
+        stopLossPrice: calcSl(entry1, sl1Pct),
+      },
+      {
+        label: "E2/TP2/SL2",
+        qty: 1,
+        limitPrice: entry2,
+        entryPrice: entry2,
+        takeProfitPrice: calcTp(entry2, tp2Pct),
+        stopLossPrice: calcSl(entry2, sl2Pct),
+      },
+    ];
+  }
+
+  if (qty === 3) {
+    return [
+      {
+        label: "E1/TP1/SL1",
+        qty: 1,
+        limitPrice: null,
+        entryPrice: entry1,
+        takeProfitPrice: calcTp(entry1, tp1Pct),
+        stopLossPrice: calcSl(entry1, sl1Pct),
+      },
+      {
+        label: "E2/TP2/SL1",
+        qty: 1,
+        limitPrice: entry2,
+        entryPrice: entry2,
+        takeProfitPrice: calcTp(entry2, tp2Pct),
+        stopLossPrice: calcSl(entry2, sl1Pct),
+      },
+      {
+        label: "E3/TP3/SL2",
+        qty: 1,
+        limitPrice: entry3,
+        entryPrice: entry3,
+        takeProfitPrice: calcTp(entry3, tp3Pct),
+        stopLossPrice: calcSl(entry3, sl2Pct),
+      },
+    ];
+  }
+
+  // General split for qty >= 4:
+  // TP1 = 40%, TP2 = 40%, TP3 = 20%
+  // SL1 = 50% (TP1 40% + 10% of TP2), SL2 = 50% (30% of TP2 + TP3 20%)
+  const tp1Qty = Math.max(1, Math.round(qty * 0.4));
+  const tp3Qty = Math.max(1, Math.round(qty * 0.2));
+  const tp2Qty = Math.max(1, qty - tp1Qty - tp3Qty);
+
+  const targetSl1Qty = Math.round(qty * 0.5);
+  const tp2Sl1Qty = Math.max(0, Math.min(tp2Qty, targetSl1Qty - tp1Qty));
+  const tp2Sl2Qty = tp2Qty - tp2Sl1Qty;
+
+  const legs = [
+    {
+      label: "E1/TP1/SL1",
+      qty: tp1Qty,
+      limitPrice: null,
+      entryPrice: entry1,
+      takeProfitPrice: calcTp(entry1, tp1Pct),
+      stopLossPrice: calcSl(entry1, sl1Pct),
+    },
+  ];
+
+  if (tp2Sl1Qty > 0) {
+    legs.push({
+      label: "E2/TP2/SL1",
+      qty: tp2Sl1Qty,
+      limitPrice: entry2,
+      entryPrice: entry2,
+      takeProfitPrice: calcTp(entry2, tp2Pct),
+      stopLossPrice: calcSl(entry2, sl1Pct),
+    });
+  }
+
+  if (tp2Sl2Qty > 0) {
+    legs.push({
+      label: "E2/TP2/SL2",
+      qty: tp2Sl2Qty,
+      limitPrice: entry2,
+      entryPrice: entry2,
+      takeProfitPrice: calcTp(entry2, tp2Pct),
+      stopLossPrice: calcSl(entry2, sl2Pct),
+    });
+  }
+
+  if (tp3Qty > 0) {
+    legs.push({
+      label: "E3/TP3/SL2",
+      qty: tp3Qty,
+      limitPrice: entry3,
+      entryPrice: entry3,
+      takeProfitPrice: calcTp(entry3, tp3Pct),
+      stopLossPrice: calcSl(entry3, sl2Pct),
+    });
+  }
+
+  return legs;
+}
+
+/**
+ * Evaluate signals with risk-aware verification and execute 3-level scaled
+ * entry/TP + 2-level SL bracket orders on the active broker.
  *
  * @param {Array<object>} signals
  * @returns {Promise<{ enrichedSignals: Array<object>, events: Array<string> }>}
@@ -253,51 +404,31 @@ export async function executeSignals(signals) {
         continue;
       }
 
-      const { takeProfitPrice, stopLoss1Price, stopLoss2Price } = liveTargets;
-
-      // 2-Level Scaled Stop-Loss:
-      // Split position 50/50 across tight SL1 (0.5%) and outer SL2 (0.9%), both targeting >= 2:1 TP
+      const legs = buildScaledOrderPlan({ price, qty, side });
       const placedOrders = [];
-      if (qty >= 2) {
-        const tranche1Qty = Math.ceil(qty / 2);
-        const tranche2Qty = qty - tranche1Qty;
 
-        const order1 = await broker.placeMarketOrder({
+      for (const leg of legs) {
+        const order = await broker.placeMarketOrder({
           symbol: ticker,
-          qty: tranche1Qty,
+          qty: leg.qty,
           side,
-          takeProfitPrice,
-          stopLossPrice: stopLoss1Price,
+          limitPrice: leg.limitPrice,
+          takeProfitPrice: leg.takeProfitPrice,
+          stopLossPrice: leg.stopLossPrice,
         });
-        placedOrders.push(order1);
-
-        const order2 = await broker.placeMarketOrder({
-          symbol: ticker,
-          qty: tranche2Qty,
-          side,
-          takeProfitPrice,
-          stopLossPrice: stopLoss2Price,
-        });
-        placedOrders.push(order2);
-      } else {
-        const order1 = await broker.placeMarketOrder({
-          symbol: ticker,
-          qty,
-          side,
-          takeProfitPrice,
-          stopLossPrice: stopLoss1Price,
-        });
-        placedOrders.push(order1);
+        placedOrders.push({ ...leg, id: order.id, status: order.status });
       }
 
       availableCash = Math.max(0, availableCash - qty * price);
       openPositionCount += 1;
       openPositionSymbols.add(ticker);
 
-      const execLabel = `${side.toUpperCase()} ${qty} @ ~$${price.toFixed(2)}`;
-      const orderIds = placedOrders.map((o) => o.id).join(", ");
+      const execLabel = `${side.toUpperCase()} ${qty} (${legs.length}L) @ ~$${price.toFixed(2)}`;
+      const legSummary = placedOrders
+        .map((l) => `${l.label}:${l.qty}@$${l.entryPrice}(TP$${l.takeProfitPrice}/SL$${l.stopLossPrice})`)
+        .join(" | ");
       events.push(
-        `VERIFIED ORDER [${broker.id.toUpperCase()} | Score ${verification.safetyScore}]: ${execLabel} ${ticker} (TP $${takeProfitPrice} | SL1 $${stopLoss1Price} / SL2 $${stopLoss2Price}, ids: ${orderIds})`
+        `SCALED ORDER [${broker.id.toUpperCase()} | Score ${verification.safetyScore}]: ${ticker} -> ${legSummary}`
       );
       enrichedSignals.push({
         ...signal,

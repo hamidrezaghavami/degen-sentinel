@@ -52,14 +52,25 @@ export const alpacaBroker = {
     return Number(trade?.Price ?? trade?.p ?? 0);
   },
 
-  async placeMarketOrder({ symbol, qty, side, takeProfitPrice, stopLossPrice }) {
+  async placeMarketOrder({
+    symbol,
+    qty,
+    side,
+    limitPrice = null,
+    takeProfitPrice,
+    stopLossPrice,
+  }) {
     const payload = {
       symbol,
       qty,
       side,
-      type: "market",
+      type: limitPrice ? "limit" : "market",
       time_in_force: "day",
     };
+
+    if (limitPrice) {
+      payload.limit_price = Number(limitPrice.toFixed(2));
+    }
 
     if (takeProfitPrice && stopLossPrice) {
       payload.order_class = "bracket";
