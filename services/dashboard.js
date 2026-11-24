@@ -204,7 +204,7 @@ export function renderDashboard({
 
       const tpSlStr =
         sig.takeProfitPrice && sig.stopLoss1Price
-          ? `${chalk.green(`$${sig.takeProfitPrice.toFixed(2)}`)} / ${chalk.red(`$${sig.stopLoss1Price.toFixed(2)}`)}${sig.stopLoss2Price ? chalk.gray(`-$${sig.stopLoss2Price.toFixed(2)}`) : ""}`
+          ? `TP ${chalk.green(`$${sig.takeProfitPrice.toFixed(2)}`)}\nSL ${chalk.red(`$${sig.stopLoss1Price.toFixed(2)}`)}${sig.stopLoss2Price ? chalk.gray(`/$${sig.stopLoss2Price.toFixed(2)}`) : ""}`
           : chalk.gray("-");
 
       const row = [

@@ -261,8 +261,9 @@ export async function executeSignals(signals) {
     };
   }
 
-  let openPositionCount = openPositions.length;
   const openPositionSymbols = new Set(openPositions.map((p) => p.symbol));
+  const activeSymbols = new Set([...openPositionSymbols, ...openOrderSymbols]);
+  let activeExposureCount = activeSymbols.size;
   let availableCash = Math.max(account.cash, account.buyingPower);
 
   const computeTargets = (price, action) => {
@@ -345,7 +346,7 @@ export async function executeSignals(signals) {
       continue;
     }
 
-    if (openOrderSymbols.has(ticker) || openPositionSymbols.has(ticker)) {
+    if (activeSymbols.has(ticker)) {
       enrichedSignals.push({
         ...signal,
         ...targets,
@@ -355,7 +356,7 @@ export async function executeSignals(signals) {
       continue;
     }
 
-    if (openPositionCount >= CONFIG.MAX_OPEN_POSITIONS) {
+    if (activeExposureCount >= CONFIG.MAX_OPEN_POSITIONS) {
       enrichedSignals.push({
         ...signal,
         ...targets,
@@ -406,30 +407,48 @@ export async function executeSignals(signals) {
 
       const legs = buildScaledOrderPlan({ price, qty, side });
       const placedOrders = [];
+      const failedLegs = [];
 
       for (const leg of legs) {
-        const order = await broker.placeMarketOrder({
-          symbol: ticker,
-          qty: leg.qty,
-          side,
-          limitPrice: leg.limitPrice,
-          takeProfitPrice: leg.takeProfitPrice,
-          stopLossPrice: leg.stopLossPrice,
-        });
-        placedOrders.push({ ...leg, id: order.id, status: order.status });
+        try {
+          const order = await broker.placeMarketOrder({
+            symbol: ticker,
+            qty: leg.qty,
+            side,
+            limitPrice: leg.limitPrice,
+            takeProfitPrice: leg.takeProfitPrice,
+            stopLossPrice: leg.stopLossPrice,
+          });
+          placedOrders.push({ ...leg, id: order.id, status: order.status });
+        } catch (legErr) {
+          const legReason =
+            legErr?.response?.data?.message || legErr.message || "Unknown error";
+          failedLegs.push(`${leg.label}: ${legReason}`);
+        }
       }
 
-      availableCash = Math.max(0, availableCash - qty * price);
-      openPositionCount += 1;
-      openPositionSymbols.add(ticker);
+      if (placedOrders.length === 0) {
+        throw new Error(failedLegs[0] || "All order legs failed");
+      }
 
-      const execLabel = `${side.toUpperCase()} ${qty} (${legs.length}L) @ ~$${price.toFixed(2)}`;
+      const filledQty = placedOrders.reduce((s, l) => s + l.qty, 0);
+      availableCash = Math.max(0, availableCash - filledQty * price);
+      activeExposureCount += 1;
+      activeSymbols.add(ticker);
+
+      const execLabel =
+        failedLegs.length > 0
+          ? `${side.toUpperCase()} ${filledQty} (${placedOrders.length}/${legs.length}L)`
+          : `${side.toUpperCase()} ${filledQty} (${legs.length}L) @ ~$${price.toFixed(2)}`;
       const legSummary = placedOrders
         .map((l) => `${l.label}:${l.qty}@$${l.entryPrice}(TP$${l.takeProfitPrice}/SL$${l.stopLossPrice})`)
         .join(" | ");
       events.push(
         `SCALED ORDER [${broker.id.toUpperCase()} | Score ${verification.safetyScore}]: ${ticker} -> ${legSummary}`
       );
+      if (failedLegs.length > 0) {
+        events.push(`PARTIAL LEG WARN (${ticker}): ${failedLegs.join("; ")}`);
+      }
       enrichedSignals.push({
         ...signal,
         ...liveTargets,

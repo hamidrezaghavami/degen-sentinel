@@ -87,22 +87,23 @@ export const ibkrBroker = {
     return 0;
   },
 
-  async placeMarketOrder({ symbol, qty, side }) {
+  async placeMarketOrder({ symbol, qty, side, limitPrice = null }) {
     const acctId = CONFIG.IBKR_ACCOUNT_ID;
     const conid = await resolveConid(symbol);
 
-    const payload = {
-      orders: [
-        {
-          acctId,
-          conid,
-          orderType: "MKT",
-          side: side.toUpperCase(),
-          quantity: qty,
-          tif: "DAY",
-        },
-      ],
+    const orderSpec = {
+      acctId,
+      conid,
+      orderType: limitPrice ? "LMT" : "MKT",
+      side: side.toUpperCase(),
+      quantity: qty,
+      tif: "DAY",
     };
+    if (limitPrice) {
+      orderSpec.price = Number(limitPrice.toFixed(2));
+    }
+
+    const payload = { orders: [orderSpec] };
 
     const result = await ibkrFetch(`/iserver/account/${acctId}/orders`, {
       method: "POST",

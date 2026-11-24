@@ -98,12 +98,13 @@ export const schwabBroker = {
     return 0;
   },
 
-  async placeMarketOrder({ symbol, qty, side }) {
+  async placeMarketOrder({ symbol, qty, side, limitPrice = null }) {
     const payload = {
-      orderType: "MARKET",
+      orderType: limitPrice ? "LIMIT" : "MARKET",
       session: "NORMAL",
       duration: "DAY",
       orderStrategyType: "SINGLE",
+      ...(limitPrice ? { price: Number(limitPrice.toFixed(2)) } : {}),
       orderLegCollection: [
         {
           instruction: side === "buy" ? "BUY" : "SELL_SHORT",

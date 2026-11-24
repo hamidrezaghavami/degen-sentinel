@@ -90,15 +90,19 @@ export const tradierBroker = {
     return Number(quote?.last ?? quote?.close ?? 0);
   },
 
-  async placeMarketOrder({ symbol, qty, side }) {
-    const body = new URLSearchParams({
+  async placeMarketOrder({ symbol, qty, side, limitPrice = null }) {
+    const params = {
       class: "equity",
       symbol,
       side: side === "buy" ? "buy" : "sell_short",
       quantity: String(qty),
-      type: "market",
+      type: limitPrice ? "limit" : "market",
       duration: "day",
-    });
+    };
+    if (limitPrice) {
+      params.price = Number(limitPrice.toFixed(2)).toString();
+    }
+    const body = new URLSearchParams(params);
 
     const data = await tradierFetch(`/accounts/${CONFIG.TRADIER_ACCOUNT_ID}/orders`, {
       method: "POST",
