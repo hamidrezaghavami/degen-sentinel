@@ -220,9 +220,27 @@ export function buildScaledOrderPlan({ price, qty, side }) {
   return legs;
 }
 
+const dailyTradeTracker = {
+  dateKey: new Date().toISOString().slice(0, 10),
+  tradesPlaced: 0,
+  dayStartEquity: null,
+};
+
+function syncDailyTracker(currentEquity) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (dailyTradeTracker.dateKey !== today) {
+    dailyTradeTracker.dateKey = today;
+    dailyTradeTracker.tradesPlaced = 0;
+    dailyTradeTracker.dayStartEquity = currentEquity > 0 ? currentEquity : null;
+  } else if (dailyTradeTracker.dayStartEquity === null && currentEquity > 0) {
+    dailyTradeTracker.dayStartEquity = currentEquity;
+  }
+}
+
 /**
  * Evaluate signals with risk-aware verification and execute 3-level scaled
  * entry/TP + 2-level SL bracket orders on the active broker.
+ * Enforces daily max trades (top 10/day) and daily drawdown circuit breaker.
  *
  * @param {Array<object>} signals
  * @returns {Promise<{ enrichedSignals: Array<object>, events: Array<string> }>}
@@ -265,6 +283,22 @@ export async function executeSignals(signals) {
   const activeSymbols = new Set([...openPositionSymbols, ...openOrderSymbols]);
   let activeExposureCount = activeSymbols.size;
   let availableCash = Math.max(account.cash, account.buyingPower);
+
+  syncDailyTracker(account.equity || account.portfolioValue);
+  const dailyDrawdownPct =
+    dailyTradeTracker.dayStartEquity && dailyTradeTracker.dayStartEquity > 0
+      ? (((account.equity || account.portfolioValue) - dailyTradeTracker.dayStartEquity) /
+          dailyTradeTracker.dayStartEquity) *
+        100
+      : 0;
+  const circuitBreakerTripped =
+    CONFIG.SAFE_MODE && dailyDrawdownPct <= -CONFIG.MAX_DAILY_LOSS_PCT;
+
+  if (circuitBreakerTripped) {
+    events.push(
+      `CIRCUIT BREAKER ACTIVE: Daily drawdown ${dailyDrawdownPct.toFixed(2)}% hit -${CONFIG.MAX_DAILY_LOSS_PCT}% cap. Pausing new entries.`
+    );
+  }
 
   const computeTargets = (price, action) => {
     if (!Number.isFinite(price) || price <= 0 || action === "HOLD") {
@@ -343,6 +377,26 @@ export async function executeSignals(signals) {
           `VERIFIER BLOCKED ${action} ${ticker} [${signal.strategy}]: ${verification.reason}`
         );
       }
+      continue;
+    }
+
+    if (circuitBreakerTripped) {
+      enrichedSignals.push({
+        ...signal,
+        ...targets,
+        safetyScore: verification.safetyScore,
+        execution: "PAUSED (Daily Loss Cap)",
+      });
+      continue;
+    }
+
+    if (dailyTradeTracker.tradesPlaced >= CONFIG.MAX_DAILY_TRADES) {
+      enrichedSignals.push({
+        ...signal,
+        ...targets,
+        safetyScore: verification.safetyScore,
+        execution: `SKIPPED (Max ${CONFIG.MAX_DAILY_TRADES}/day)`,
+      });
       continue;
     }
 
@@ -435,6 +489,7 @@ export async function executeSignals(signals) {
       availableCash = Math.max(0, availableCash - filledQty * price);
       activeExposureCount += 1;
       activeSymbols.add(ticker);
+      dailyTradeTracker.tradesPlaced += 1;
 
       const execLabel =
         failedLegs.length > 0

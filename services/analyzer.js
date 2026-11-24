@@ -1,5 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 import { CONFIG } from "../config.js";
+import {
+  enrichPostsWithFundamentals,
+  formatFundamentalsBlock,
+} from "./fundamentals.js";
 
 const IGNORED_TICKERS = new Set([
   "DD", "CEO", "CFO", "CTO", "YOLO", "HOLD", "HODL", "MOON", "WSB",
@@ -12,21 +16,20 @@ const IGNORED_TICKERS = new Set([
   "RIP", "WTF", "LOL", "OMG", "FYI", "EOD", "AH", "PM", "AM",
 ]);
 
-const SYSTEM_INSTRUCTION = `You are a risk-aware quantitative sentiment & strategy analyst monitoring r/wallstreetbets.
-Analyze the provided Reddit posts/telemetry and extract genuine publicly traded US stock tickers (e.g., NVDA, AAPL, AMD, MSFT, TSLA, GME, SPY).
+const SYSTEM_INSTRUCTION = `You are a disciplined institutional equity & sentiment analyst monitoring r/wallstreetbets.
+You are given BOTH live Reddit social chatter AND live Yahoo Finance fundamentals (Market Cap, Forward P/E, Revenue Growth, Profit Margins, 52-Week Position, Analyst Consensus, Target Upside).
 
 STRICT RULES:
-1. Return ONLY valid JSON matching the requested schema.
+1. Return ONLY valid JSON matching the requested schema (top 10 most relevant US stock tickers max).
 2. Ignore generic words, slang, and non-ticker acronyms (DD, CEO, YOLO, HOLD, MOON, WSB, SEC, FED, CPI, GDP, ETF, IPO, FOMO, ITM, OTM, DTE, ATH, USA, USD, CALL, PUT, AI).
-3. Classify each ticker into the SAFEST matching strategy:
-   - "MOMENTUM_BREAKOUT": Liquid large-cap with accelerating organic attention and sustainable bullish trend -> suggested_action "BUY".
-   - "MEAN_REVERSION_FADE": Overextended mega-cap/liquid stock where hype is peaking/fading -> suggested_action "SHORT" (only if risk is not HIGH).
-   - "SHORT_SQUEEZE_RISK": Heavily shorted meme stocks (e.g., GME, AMC, BBBY, sudden +200% retail meme spikes) -> NEVER recommend SHORT; set risk_level "HIGH" and suggested_action "HOLD".
-   - "NOISE": Low conviction or unclear catalyst -> suggested_action "HOLD".
-4. Score hype_score from 1 to 10, confidence from 0 to 100, and risk_level ("LOW", "MEDIUM", "HIGH").
-5. Be conservative: prefer "HOLD" over risky shorts on meme stocks or unclear moves.
-6. Keep summary concise (under 80 characters).
-7. If no valid stock tickers are clearly discussed, return {"analysis": []}.`;
+3. Combine FUNDAMENTALS + SENTIMENT to pick ONLY high-probability setups:
+   - "MOMENTUM_BREAKOUT" -> "BUY": Strong fundamentals (positive profit margin OR strong revenue growth, healthy analyst rating like buy/strong_buy, positive target upside, liquid >= $10B market cap) paired with accelerating retail attention.
+   - "MEAN_REVERSION_FADE" -> "SHORT": Overvalued or weakening fundamentals (negative/shrinking margins, analyst hold/underperform, negative target upside) where retail hype is peaking—NEVER short a squeeze stock.
+   - "SHORT_SQUEEZE_RISK" -> "HOLD" (risk_level "HIGH"): Heavily shorted meme stocks (GME, AMC, low-float >200% mention spikes) or deeply unprofitable cash-burners—mark HIGH risk and HOLD.
+   - "NOISE" -> "HOLD": Unclear fundamentals or conflicting signals.
+4. Score hype_score (1-10), confidence (0-100), and risk_level ("LOW", "MEDIUM", "HIGH"). Only give confidence >= 75 when BOTH fundamentals and sentiment agree.
+5. Keep summary concise (under 80 characters), citing the key fundamental + sentiment driver.
+6. If no valid stock tickers are clearly discussed, return {"analysis": []}.`;
 
 const RESPONSE_SCHEMA = {
   type: "object",
@@ -226,7 +229,10 @@ export async function analyzeSentiment(posts) {
     return { analysis: [] };
   }
 
-  const promptText = `Analyze these ${posts.length} recent r/wallstreetbets posts/metrics and return the structured JSON strategy & risk analysis:\n\n${formatPostsForPrompt(posts)}`;
+  const fundamentalsMap = await enrichPostsWithFundamentals(posts);
+  const fundamentalsBlock = formatFundamentalsBlock(fundamentalsMap);
+
+  const promptText = `Analyze these ${posts.length} recent r/wallstreetbets posts/metrics alongside their live fundamentals and return the structured JSON strategy & risk analysis (top 10 tickers max):\n\n${formatPostsForPrompt(posts)}${fundamentalsBlock}`;
 
   const client = getClient();
   const modelsToTry = [
