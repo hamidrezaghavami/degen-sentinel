@@ -169,7 +169,10 @@ export async function verifySignal(signal) {
   }
 
   const closes = bars.map((b) => b.close);
+  const volumes = bars.map((b) => b.volume);
   const lastPrice = closes[closes.length - 1];
+  const lastVolume = volumes[volumes.length - 1] ?? 0;
+  const avgVol10 = calcSMA(volumes.slice(0, -1), Math.min(10, volumes.length - 1));
   const sma5 = calcSMA(closes, 5);
   const sma20 = calcSMA(closes, Math.min(20, closes.length));
   const rsi14 = calcRSI(closes, 14);
@@ -181,39 +184,49 @@ export async function verifySignal(signal) {
     sma20: sma20 ? Number(sma20.toFixed(2)) : null,
     rsi14: rsi14 !== null ? Number(rsi14.toFixed(1)) : null,
     volatilityPct: volatilityPct !== null ? Number(volatilityPct.toFixed(2)) : null,
+    volumeRatio: avgVol10 && avgVol10 > 0 ? Number((lastVolume / avgVol10).toFixed(2)) : null,
   };
 
-  let score = 40;
+  let score = 35;
   const reasons = [];
 
-  // AI confidence & hype contribution (up to +25)
-  score += Math.round((confidence / 100) * 20);
+  // AI confidence & hype contribution (up to +20)
+  score += Math.round((confidence / 100) * 15);
   if (hypeScore >= 7) score += 5;
 
   if (action === "BUY") {
-    // Safer BUY: confirm uptrend (price > SMA-20) and not severely overbought (RSI < 72)
-    if (sma20 && lastPrice > sma20) {
-      score += 20;
+    // Require full bullish alignment: price > SMA5 > SMA20 (never buy a weakening trend)
+    if (sma5 && sma20 && lastPrice > sma5 && sma5 > sma20) {
+      score += 25;
+    } else if (sma20 && lastPrice > sma20) {
+      score += 5;
+      reasons.push("Weak Trend (SMA5<=SMA20)");
     } else {
-      score -= 15;
+      score -= 20;
       reasons.push("Below SMA20");
     }
 
-    if (rsi14 !== null && rsi14 < 72) {
+    // Sweet-spot RSI (45..68): rising momentum without overbought exhaustion
+    if (rsi14 !== null && rsi14 >= 45 && rsi14 <= 68) {
       score += 15;
-    } else if (rsi14 !== null) {
+    } else if (rsi14 !== null && rsi14 > 68) {
       score -= 20;
       reasons.push(`Overbought RSI ${rsi14.toFixed(0)}`);
+    } else if (rsi14 !== null) {
+      score -= 5;
+      reasons.push(`Weak RSI ${rsi14.toFixed(0)}`);
     }
   } else {
-    // Safer SHORT/SELL: never short a surging rocket!
-    const rollingOver = sma5 && lastPrice < sma5;
-    const overbought = rsi14 !== null && rsi14 >= 68;
+    // Require full bearish rollover: price < SMA5 < SMA20 or extreme overbought exhaustion
+    const bearishStack = sma5 && sma20 && lastPrice < sma5 && sma5 < sma20;
+    const overbought = rsi14 !== null && rsi14 >= 70;
 
-    if (rollingOver) {
-      score += 20;
+    if (bearishStack) {
+      score += 25;
+    } else if (sma5 && lastPrice < sma5) {
+      score += 10;
     } else {
-      score -= 15;
+      score -= 20;
       reasons.push("Uptrend (Above SMA5)");
     }
 
@@ -225,9 +238,18 @@ export async function verifySignal(signal) {
     }
   }
 
+  // Volume confirmation: institutional participation improves win rate
+  if (metrics.volumeRatio !== null) {
+    if (metrics.volumeRatio >= 1.1) score += 10;
+    else if (metrics.volumeRatio < 0.7) {
+      score -= 10;
+      reasons.push(`Low Vol (${metrics.volumeRatio}x)`);
+    }
+  }
+
   // Risk-level adjustment
   if (riskLevel === "LOW") score += 10;
-  if (riskLevel === "HIGH") score -= 20;
+  if (riskLevel === "HIGH") score -= 25;
 
   const safetyScore = Math.max(0, Math.min(100, score));
 
