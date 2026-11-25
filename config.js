@@ -71,7 +71,7 @@ export const CONFIG = {
   SAFE_MODE: (process.env.SAFE_MODE ?? "true").toLowerCase() !== "false",
   MIN_CONFIDENCE: parseNumber(process.env.MIN_CONFIDENCE, 70),
   MIN_SAFETY_SCORE: parseNumber(process.env.MIN_SAFETY_SCORE, 75),
-  MAX_DAILY_VOLATILITY_PCT: parseNumber(process.env.MAX_DAILY_VOLATILITY_PCT, 6.5),
+  MAX_DAILY_VOLATILITY_PCT: parseNumber(process.env.MAX_DAILY_VOLATILITY_PCT, 10),
   MAX_OPEN_POSITIONS: parseNumber(process.env.MAX_OPEN_POSITIONS, 3),
   MAX_DAILY_TRADES: parseNumber(process.env.MAX_DAILY_TRADES, 10),
   MAX_DAILY_LOSS_PCT: parseNumber(process.env.MAX_DAILY_LOSS_PCT, 1.5),
