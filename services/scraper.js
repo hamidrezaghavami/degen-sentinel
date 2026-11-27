@@ -55,9 +55,31 @@ async function getRedditOAuthToken() {
 }
 
 /**
- * Fallback live r/wallstreetbets feed via ApeWisdom public API when Reddit blocks
- * unauthenticated .json requests (HTTP 403/429).
+ * Build synthetic S&P 500 blue-chip watchlist entries for tickers not already
+ * present in the Reddit/WSB batch so Gemini & the verifier always scan major leaders
+ * like AMZN, MSFT, JPM, COST, WMT, LLY, NFLX, etc.
  */
+function appendSp500Watchlist(posts) {
+  const existingTickers = new Set();
+  for (const p of posts) {
+    const matches = (p.title || "").match(/\$([A-Z]{1,5})\b/g) || [];
+    for (const m of matches) existingTickers.add(m.slice(1).toUpperCase());
+  }
+
+  const added = [];
+  for (const sym of CONFIG.SP500_WATCHLIST || []) {
+    if (existingTickers.has(sym)) continue;
+    added.push({
+      id: `sp500:${sym}:${Math.floor(Date.now() / (15 * 60 * 1000))}`,
+      title: `$${sym} — S&P 500 Blue-Chip Leader Watchlist`,
+      selftext: `High-liquidity S&P 500 constituent ($${sym}). Evaluate using live fundamentals, analyst consensus, and technical trend.`,
+      upvoteRatio: 0.85,
+      score: 100,
+      createdUtc: Math.floor(Date.now() / 1000),
+    });
+  }
+  return [...posts, ...added];
+}
 async function fetchFromApeWisdom(limit = 15) {
   const response = await fetch(APEWISDOM_WSB_ENDPOINT, {
     headers: {
@@ -106,10 +128,11 @@ async function fetchFromApeWisdom(limit = 15) {
     });
   }
 
+  const combined = appendSp500Watchlist(newItems);
   return {
-    posts: newItems,
-    totalFetched: results.length,
-    source: "r/wallstreetbets (ApeWisdom live fallback)",
+    posts: combined,
+    totalFetched: results.length + (CONFIG.SP500_WATCHLIST?.length || 0),
+    source: "WSB + S&P 500 Watchlist",
   };
 }
 

@@ -116,9 +116,9 @@ export async function enrichPostsWithFundamentals(posts) {
         seen.add(ticker);
         candidates.push(ticker);
       }
-      if (candidates.length >= 10) break;
+      if (candidates.length >= 22) break;
     }
-    if (candidates.length >= 10) break;
+    if (candidates.length >= 22) break;
   }
 
   const results = new Map();

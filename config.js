@@ -79,6 +79,15 @@ export const CONFIG = {
   REDDIT_USER_AGENT:
     process.env.REDDIT_USER_AGENT?.trim() ||
     "macos:degen-sentinel:v1.0.0 (by /u/hamidrezaghavami)",
+
+  // S&P 500 Blue-Chip Watchlist merged alongside r/wallstreetbets
+  SP500_WATCHLIST: (
+    process.env.SP500_WATCHLIST ||
+    "AMZN,MSFT,AAPL,GOOGL,META,NVDA,JPM,V,COST,WMT,LLY,NFLX,AVGO,CRM,XOM"
+  )
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean),
 };
 
 export function validateConfig() {

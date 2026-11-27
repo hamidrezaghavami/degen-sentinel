@@ -238,13 +238,9 @@ export async function verifySignal(signal) {
     }
   }
 
-  // Volume confirmation: institutional participation improves win rate
-  if (metrics.volumeRatio !== null) {
-    if (metrics.volumeRatio >= 1.1) score += 10;
-    else if (metrics.volumeRatio < 0.7) {
-      score -= 10;
-      reasons.push(`Low Vol (${metrics.volumeRatio}x)`);
-    }
+  // Volume confirmation: bonus for institutional surge (no penalty on quiet/half-day sessions)
+  if (metrics.volumeRatio !== null && metrics.volumeRatio >= 1.1) {
+    score += 10;
   }
 
   // Risk-level adjustment
