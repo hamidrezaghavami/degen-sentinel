@@ -75,6 +75,7 @@ export const CONFIG = {
   MAX_OPEN_POSITIONS: parseNumber(process.env.MAX_OPEN_POSITIONS, 3),
   MAX_DAILY_TRADES: parseNumber(process.env.MAX_DAILY_TRADES, 10),
   MAX_DAILY_LOSS_PCT: parseNumber(process.env.MAX_DAILY_LOSS_PCT, 1.5),
+  MAX_POST_AGE_HOURS: parseNumber(process.env.MAX_POST_AGE_HOURS, 2),
 
   REDDIT_USER_AGENT:
     process.env.REDDIT_USER_AGENT?.trim() ||

@@ -80,6 +80,52 @@ async function fetchDailyBars(symbol) {
   return [];
 }
 
+/**
+ * Fetch recent 15-minute intraday bars (last ~24h) to sync social signal timing
+ * with real-time intraday market movement (prevents buying into a fresh dump or
+ * chasing an already-exhausted intraday spike).
+ */
+async function fetchIntradayBars(symbol) {
+  const end = new Date();
+  const start = new Date(end.getTime() - 48 * 60 * 60 * 1000);
+
+  try {
+    const chart = await yahooFinance.chart(symbol, {
+      period1: start,
+      period2: end,
+      interval: "15m",
+    });
+    const quotes = (chart?.quotes ?? []).filter((q) => Number.isFinite(q?.close) && q.close > 0);
+    if (quotes.length >= 5) {
+      return quotes.slice(-16).map((q) => ({ close: Number(q.close) }));
+    }
+  } catch {
+    // Fall through to Alpaca 15Min bars
+  }
+
+  const alpaca = getAlpacaDataClient();
+  if (alpaca) {
+    try {
+      const bars = [];
+      const iter = alpaca.getBarsV2(symbol, {
+        start: start.toISOString(),
+        end: end.toISOString(),
+        timeframe: "15Min",
+        limit: 20,
+        feed: "iex",
+      });
+      for await (const b of iter) {
+        bars.push({ close: Number(b.ClosePrice ?? b.c) });
+      }
+      if (bars.length >= 5) return bars.slice(-16);
+    } catch {
+      // Optional intraday check
+    }
+  }
+
+  return [];
+}
+
 function calcSMA(values, period) {
   if (values.length < period) return null;
   const slice = values.slice(-period);
@@ -158,8 +204,11 @@ export async function verifySignal(signal) {
     }
   }
 
-  // Fetch technical bars for quantitative verification on EVERY actionable signal
-  const bars = await fetchDailyBars(ticker);
+  // Fetch daily + 15-minute intraday bars in parallel for full timeline sync
+  const [bars, intradayBars] = await Promise.all([
+    fetchDailyBars(ticker),
+    fetchIntradayBars(ticker),
+  ]);
   if (bars.length < 15) {
     return {
       approved: !CONFIG.SAFE_MODE,
@@ -258,6 +307,34 @@ export async function verifySignal(signal) {
         reasons.push(`Oversold (${quant.zScore}σ)`);
       } else if (quant.zScore >= 1.8) {
         score += 10;
+      }
+    }
+  }
+
+  // Intraday 15-minute timeline sync: verify live 1-hour movement matches signal direction
+  if (intradayBars.length >= 5) {
+    const intraCloses = intradayBars.map((b) => b.close);
+    const liveIntra = intraCloses[intraCloses.length - 1];
+    const hourAgoIntra = intraCloses[Math.max(0, intraCloses.length - 5)];
+    const intraSma4 = calcSMA(intraCloses, 4);
+    const change1hPct = hourAgoIntra > 0 ? ((liveIntra - hourAgoIntra) / hourAgoIntra) * 100 : 0;
+
+    if (action === "BUY") {
+      if (change1hPct < -0.6) {
+        score -= 15;
+        reasons.push(`Intraday Drop (${change1hPct.toFixed(1)}%/1h)`);
+      } else if (change1hPct > 2.5) {
+        score -= 15;
+        reasons.push(`Chasing Spike (+${change1hPct.toFixed(1)}%/1h)`);
+      } else if (intraSma4 && liveIntra >= intraSma4) {
+        score += 5;
+      }
+    } else {
+      if (change1hPct > 0.6) {
+        score -= 15;
+        reasons.push(`Intraday Rally (+${change1hPct.toFixed(1)}%/1h)`);
+      } else if (intraSma4 && liveIntra <= intraSma4) {
+        score += 5;
       }
     }
   }

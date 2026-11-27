@@ -235,7 +235,8 @@ export async function analyzeSentiment(posts) {
   const fundamentalsMap = await enrichPostsWithFundamentals(posts);
   const fundamentalsBlock = formatFundamentalsBlock(fundamentalsMap);
 
-  const promptText = `Analyze these ${posts.length} recent r/wallstreetbets posts/metrics alongside their live fundamentals and return the structured JSON strategy & risk analysis (top 10 tickers max):\n\n${formatPostsForPrompt(posts)}${fundamentalsBlock}`;
+  const nowIso = new Date().toISOString();
+  const promptText = `Current UTC Market Timestamp: ${nowIso}\nAnalyze these ${posts.length} fresh r/wallstreetbets & S&P 500 items alongside their live fundamentals + quant stats and return the structured JSON strategy & risk analysis (top 10 tickers max):\n\n${formatPostsForPrompt(posts)}${fundamentalsBlock}`;
 
   const client = getClient();
   const modelsToTry = [

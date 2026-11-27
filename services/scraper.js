@@ -176,10 +176,16 @@ export async function fetchNewPosts(limit = 15) {
     const payload = await response.json();
     const children = payload?.data?.children ?? [];
 
+    const nowSec = Math.floor(Date.now() / 1000);
+    const maxAgeSec = (CONFIG.MAX_POST_AGE_HOURS || 2) * 3600;
     const newPosts = [];
     for (const child of children) {
       const post = child?.data;
       if (!post?.id || seenPostIds.has(post.id)) continue;
+
+      const createdUtc = Number(post.created_utc ?? 0);
+      // Skip stale Reddit posts older than MAX_POST_AGE_HOURS so social timing matches live market
+      if (createdUtc > 0 && nowSec - createdUtc > maxAgeSec) continue;
 
       recordSeenId(post.id);
       newPosts.push({
@@ -188,14 +194,18 @@ export async function fetchNewPosts(limit = 15) {
         selftext: (post.selftext || "").trim(),
         upvoteRatio: Number(post.upvote_ratio ?? 0),
         score: Number(post.score ?? 0),
-        createdUtc: Number(post.created_utc ?? 0),
+        createdUtc,
+        ageMinutes: createdUtc > 0 ? Math.max(0, Math.round((nowSec - createdUtc) / 60)) : 0,
       });
     }
 
+    const combined = appendSp500Watchlist(newPosts);
     return {
-      posts: newPosts,
-      totalFetched: children.length,
-      source: token ? "r/wallstreetbets (Reddit OAuth)" : "r/wallstreetbets (Reddit JSON)",
+      posts: combined,
+      totalFetched: children.length + (CONFIG.SP500_WATCHLIST?.length || 0),
+      source: token
+        ? "r/wallstreetbets (OAuth) + S&P 500"
+        : "r/wallstreetbets (JSON) + S&P 500",
     };
   } catch (err) {
     if (!token) {
