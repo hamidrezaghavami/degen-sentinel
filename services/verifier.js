@@ -1,6 +1,7 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
 import YahooFinanceModule from "yahoo-finance2";
 import { CONFIG } from "../config.js";
+import { computeQuantStats } from "./quant.js";
 
 const yahooFinance =
   typeof YahooFinanceModule === "function"
@@ -177,6 +178,7 @@ export async function verifySignal(signal) {
   const sma20 = calcSMA(closes, Math.min(20, closes.length));
   const rsi14 = calcRSI(closes, 14);
   const volatilityPct = calcVolatilityPct(bars, 14);
+  const quant = computeQuantStats(closes, 20);
 
   const metrics = {
     lastPrice: Number(lastPrice.toFixed(2)),
@@ -185,6 +187,9 @@ export async function verifySignal(signal) {
     rsi14: rsi14 !== null ? Number(rsi14.toFixed(1)) : null,
     volatilityPct: volatilityPct !== null ? Number(volatilityPct.toFixed(2)) : null,
     volumeRatio: avgVol10 && avgVol10 > 0 ? Number((lastVolume / avgVol10).toFixed(2)) : null,
+    zScore: quant?.zScore ?? null,
+    bollingerPctB: quant?.bollingerPctB ?? null,
+    sharpe20: quant?.sharpe20 ?? null,
   };
 
   let score = 35;
@@ -235,6 +240,25 @@ export async function verifySignal(signal) {
     } else if (rsi14 !== null && rsi14 < 45) {
       score -= 20;
       reasons.push(`Oversold RSI ${rsi14.toFixed(0)}`);
+    }
+  }
+
+  // Standard Deviation (Z-Score & Sharpe-20) Statistical Edge Adjustment
+  if (quant) {
+    if (action === "BUY") {
+      if (quant.zScore >= 2.0) {
+        score -= 20;
+        reasons.push(`Overextended (+${quant.zScore}σ)`);
+      } else if (quant.zScore >= -0.3 && quant.zScore <= 1.5 && quant.sharpe20 > 0.5) {
+        score += 10;
+      }
+    } else {
+      if (quant.zScore <= -1.8) {
+        score -= 20;
+        reasons.push(`Oversold (${quant.zScore}σ)`);
+      } else if (quant.zScore >= 1.8) {
+        score += 10;
+      }
     }
   }
 

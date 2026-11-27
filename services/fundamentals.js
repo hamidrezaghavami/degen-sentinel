@@ -1,4 +1,5 @@
 import YahooFinanceModule from "yahoo-finance2";
+import { computeQuantStats } from "./quant.js";
 
 const yahooFinance =
   typeof YahooFinanceModule === "function"
@@ -34,16 +35,26 @@ export async function fetchTickerFundamentals(symbol) {
   }
 
   try {
-    const [quote, summary] = await Promise.all([
+    const end = new Date();
+    const start = new Date(end.getTime() - 45 * 24 * 60 * 60 * 1000);
+    const [quote, summary, chart] = await Promise.all([
       yahooFinance.quote(symbol).catch(() => null),
       yahooFinance
         .quoteSummary(symbol, {
           modules: ["financialData", "defaultKeyStatistics", "summaryDetail"],
         })
         .catch(() => null),
+      yahooFinance
+        .chart(symbol, { period1: start, period2: end, interval: "1d" })
+        .catch(() => null),
     ]);
 
     if (!quote && !summary) return null;
+
+    const chartCloses = (chart?.quotes ?? [])
+      .map((q) => Number(q?.close))
+      .filter((c) => Number.isFinite(c) && c > 0);
+    const quant = computeQuantStats(chartCloses, 20);
 
     const fin = summary?.financialData ?? {};
     const stats = summary?.defaultKeyStatistics ?? {};
@@ -88,6 +99,7 @@ export async function fetchTickerFundamentals(symbol) {
       posIn52w,
       analystRating,
       upsidePct,
+      quant,
     };
 
     cache.set(symbol, { data, fetchedAt: Date.now() });
@@ -143,8 +155,9 @@ export async function enrichPostsWithFundamentals(posts) {
 export function formatFundamentalsBlock(fundamentalsMap) {
   if (!fundamentalsMap || fundamentalsMap.size === 0) return "";
 
-  const lines = ["\nLIVE FUNDAMENTALS SNAPSHOT (Yahoo Finance):"];
+  const lines = ["\nLIVE FUNDAMENTALS + QUANT STATISTICS (Yahoo Finance & StdDev Engine):"];
   for (const [sym, f] of fundamentalsMap.entries()) {
+    const q = f.quant;
     const parts = [
       `${sym}:`,
       f.price ? `Price $${f.price}` : null,
@@ -156,6 +169,10 @@ export function formatFundamentalsBlock(fundamentalsMap) {
       f.posIn52w !== null ? `52wPos ${f.posIn52w}%` : null,
       f.analystRating !== "none" ? `Analysts ${f.analystRating}` : null,
       f.upsidePct !== null ? `TargetUpside ${f.upsidePct >= 0 ? "+" : ""}${f.upsidePct}%` : null,
+      q ? `ZScore ${q.zScore >= 0 ? "+" : ""}${q.zScore}σ` : null,
+      q ? `BB%B ${q.bollingerPctB}` : null,
+      q ? `Sharpe20 ${q.sharpe20}` : null,
+      q ? `Regime ${q.regime}` : null,
     ].filter(Boolean);
     lines.push(`- ${parts.join(" | ")}`);
   }
