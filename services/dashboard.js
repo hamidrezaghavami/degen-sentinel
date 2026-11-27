@@ -194,7 +194,11 @@ export function renderDashboard({
       style: { head: [], border: ["gray"] },
     });
 
-    for (const sig of signals.slice(0, 6)) {
+    const rankedSignals = [...signals].sort(
+      (a, b) => Number(b.safetyScore ?? 0) - Number(a.safetyScore ?? 0)
+    );
+
+    for (const sig of rankedSignals.slice(0, 10)) {
       const score = Number(sig.safetyScore ?? 0);
       const safeStr =
         score >= 75
